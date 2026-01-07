@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/hev/ralph/internal/claude"
 	"github.com/hev/ralph/internal/config"
 )
 
@@ -140,16 +141,50 @@ func Run(cfg *config.Config) error {
 		log("=== Iteration %d ===", iteration)
 		log("Running claude (this may take a moment)...")
 
-		// TODO: Run claude and parse output
-		// For now, just sleep
-		time.Sleep(time.Duration(cfg.Cooldown) * time.Second)
+		// Run claude with streaming output
+		exitCode, err := runClaude(ctx, fullPrompt)
+		if err != nil {
+			if ctx.Err() != nil {
+				// Context was cancelled (signal received)
+				break
+			}
+			logError("Claude exited with error (code %d), continuing to next iteration...", exitCode)
+		} else {
+			logSuccess("Iteration %d complete", iteration)
+		}
 
-		logSuccess("Iteration %d complete", iteration)
 		logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
+
+		// Sleep with context awareness
+		select {
+		case <-ctx.Done():
+			printSummary(startTime, iteration, exitReason)
+			return nil
+		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
+		}
 	}
 
 	printSummary(startTime, iteration-1, exitReason)
 	return nil
+}
+
+func runClaude(ctx context.Context, prompt string) (int, error) {
+	client, err := claude.NewClient(ctx, prompt)
+	if err != nil {
+		return -1, err
+	}
+
+	if err := client.Start(); err != nil {
+		return -1, err
+	}
+
+	// Stream and parse output
+	lines := client.StreamOutput()
+	for line := range lines {
+		claude.ParseAndPrint(line)
+	}
+
+	return client.Wait()
 }
 
 func printSummary(startTime time.Time, iterations int, exitReason string) {
