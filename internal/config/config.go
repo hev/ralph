@@ -35,6 +35,9 @@ type Config struct {
 	SlackNotifyUsers string // Comma-separated user IDs
 	SlackBotToken    string
 
+	// Behavior options
+	StopOnCompletion bool // Exit when all todos are complete
+
 	// Session info
 	SessionID string
 
@@ -66,6 +69,8 @@ type yamlConfig struct {
 		Channel     string `yaml:"channel"`
 		NotifyUsers string `yaml:"notify_users"`
 	} `yaml:"slack"`
+
+	StopOnCompletion *bool `yaml:"stop_on_completion"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -211,6 +216,11 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.Slack.NotifyUsers != "" {
 		c.SlackNotifyUsers = yc.Slack.NotifyUsers
+	}
+
+	// Behavior options
+	if yc.StopOnCompletion != nil {
+		c.StopOnCompletion = *yc.StopOnCompletion
 	}
 
 	return nil
