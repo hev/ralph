@@ -63,6 +63,9 @@ func init() {
 	rootCmd.Flags().StringVar(&cfg.SlackNotifyUsers, "slack-notify-users", cfg.SlackNotifyUsers, "Comma-separated Slack user IDs to @mention on completion")
 	rootCmd.Flags().StringVar(&cfg.SlackBotToken, "slack-bot-token", cfg.SlackBotToken, "Slack bot token for thread replies")
 
+	// Behavior options
+	rootCmd.Flags().BoolVar(&cfg.StopOnCompletion, "stop-on-completion", cfg.StopOnCompletion, "Exit when all todos are complete")
+
 	// Config file flag
 	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to config file (default: ./ralph.yaml or ~/.config/ralph/ralph.yaml)")
 
@@ -111,6 +114,8 @@ func init() {
 					savedValues["slack-notify-users"] = cfg.SlackNotifyUsers
 				case "slack-bot-token":
 					savedValues["slack-bot-token"] = cfg.SlackBotToken
+				case "stop-on-completion":
+					savedValues["stop-on-completion"] = cfg.StopOnCompletion
 				}
 			})
 
@@ -155,6 +160,8 @@ func init() {
 					cfg.SlackNotifyUsers = val.(string)
 				case "slack-bot-token":
 					cfg.SlackBotToken = val.(string)
+				case "stop-on-completion":
+					cfg.StopOnCompletion = val.(bool)
 				}
 			}
 		}
@@ -200,6 +207,9 @@ Slack Options:
   --slack-channel ID          Slack channel ID (or RALPH_SLACK_CHANNEL env)
   --slack-notify-users IDS    Comma-separated user IDs to @mention (or RALPH_SLACK_NOTIFY_USERS env)
   --slack-bot-token TOKEN     Bot token for thread replies (or RALPH_SLACK_BOT_TOKEN env)
+
+Behavior Options:
+  --stop-on-completion        Exit when all todos are complete (default: false)
 
 Examples:
   ralph                           # Run forever with defaults
