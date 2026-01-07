@@ -331,3 +331,25 @@ func formatEdit(input interface{}) (string, bool) {
 
 	return filePath, true
 }
+
+// isTodoChecklist checks if content looks like a markdown checklist (TODO.md)
+// Returns true if the content contains markdown checkbox patterns
+func isTodoChecklist(content string) bool {
+	if content == "" {
+		return false
+	}
+
+	// Count lines that match checkbox patterns
+	lines := strings.Split(content, "\n")
+	checkboxCount := 0
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- [ ]") || strings.HasPrefix(trimmed, "- [x]") || strings.HasPrefix(trimmed, "- [X]") {
+			checkboxCount++
+		}
+	}
+
+	// Consider it a checklist if at least 2 checkbox items found
+	return checkboxCount >= 2
+}
