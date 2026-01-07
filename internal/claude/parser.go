@@ -3,6 +3,7 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/fatih/color"
@@ -13,6 +14,10 @@ var (
 	green  = color.New(color.FgGreen)
 	yellow = color.New(color.FgYellow)
 	red    = color.New(color.FgRed)
+	dim    = color.New(color.Faint)
+
+	// Regex to match <system-reminder>...</system-reminder> blocks
+	systemReminderRegex = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
 )
 
 // Message represents a streaming JSON message from Claude
@@ -180,4 +185,9 @@ func TruncateString(s string, maxLen int) string {
 func IsErrorMessage(line string) bool {
 	return strings.Contains(line, "\"type\":\"error\"") ||
 		strings.Contains(line, "\"error\":")
+}
+
+// stripSystemReminders removes all <system-reminder>...</system-reminder> blocks from text
+func stripSystemReminders(text string) string {
+	return strings.TrimSpace(systemReminderRegex.ReplaceAllString(text, ""))
 }
