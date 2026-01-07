@@ -11,6 +11,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/hev/ralph/internal/claude"
 	"github.com/hev/ralph/internal/config"
+	"github.com/hev/ralph/internal/metrics"
 )
 
 var (
@@ -82,6 +83,10 @@ func Run(cfg *config.Config) error {
 	}
 	logVerbose(cfg, "Agent dir: %s", cfg.AgentDir)
 	logVerbose(cfg, "Cooldown: %ds", cfg.Cooldown)
+	if cfg.OTELEnabled {
+		logVerbose(cfg, "OTEL endpoint: %s", cfg.OTELEndpoint)
+		logVerbose(cfg, "Session ID: %s", cfg.SessionID)
+	}
 
 	// Dry run mode
 	if cfg.DryRun {
@@ -95,14 +100,32 @@ func Run(cfg *config.Config) error {
 		return nil
 	}
 
+	// Initialize metrics tracker
+	tracker, err := metrics.NewTracker(cfg)
+	if err != nil {
+		logError("Failed to initialize metrics: %v", err)
+		// Continue without metrics
+	}
+
 	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start metrics session
+	if tracker != nil {
+		tracker.Start(ctx)
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			tracker.Stop(shutdownCtx)
+		}()
+	}
 
 	// Track state
 	startTime := time.Now()
 	iteration := 0
 	exitReason := "unknown"
+	totalCommits := 0
 
 	// Signal handling
 	sigChan := make(chan os.Signal, 1)
@@ -118,7 +141,7 @@ func Run(cfg *config.Config) error {
 	for {
 		select {
 		case <-ctx.Done():
-			printSummary(startTime, iteration, exitReason)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
 			return nil
 		default:
 		}
@@ -141,16 +164,34 @@ func Run(cfg *config.Config) error {
 		log("=== Iteration %d ===", iteration)
 		log("Running claude (this may take a moment)...")
 
+		// Track iteration timing
+		if tracker != nil {
+			tracker.BeforeIteration()
+		}
+		iterationStart := time.Now()
+
 		// Run claude with streaming output
 		exitCode, err := runClaude(ctx, fullPrompt)
-		if err != nil {
+		iterationDuration := time.Since(iterationStart)
+		hadError := err != nil
+
+		if hadError {
 			if ctx.Err() != nil {
 				// Context was cancelled (signal received)
 				break
 			}
 			logError("Claude exited with error (code %d), continuing to next iteration...", exitCode)
+			if tracker != nil {
+				tracker.RecordError(ctx, "execution_error")
+			}
 		} else {
 			logSuccess("Iteration %d complete", iteration)
+		}
+
+		// Record iteration metrics
+		if tracker != nil {
+			tracker.AfterIteration(ctx, iterationDuration, hadError, "complete")
+			totalCommits = tracker.GetCommitsDelta()
 		}
 
 		logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
@@ -158,13 +199,13 @@ func Run(cfg *config.Config) error {
 		// Sleep with context awareness
 		select {
 		case <-ctx.Done():
-			printSummary(startTime, iteration, exitReason)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
 			return nil
 		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
 		}
 	}
 
-	printSummary(startTime, iteration-1, exitReason)
+	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker)
 	return nil
 }
 
@@ -187,11 +228,19 @@ func runClaude(ctx context.Context, prompt string) (int, error) {
 	return client.Wait()
 }
 
-func printSummary(startTime time.Time, iterations int, exitReason string) {
+func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
 	elapsed := time.Since(startTime)
 	fmt.Println()
 	logSuccess("=== Ralph Summary ===")
 	logSuccess("Iterations completed: %d", iterations)
 	logSuccess("Total time: %.0fs", elapsed.Seconds())
 	logSuccess("Exit reason: %s", exitReason)
+	logSuccess("Commits made: %d", commits)
+
+	// Show todo status if available
+	if tracker != nil {
+		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
+			logSuccess("Todos: %d/%d complete (%.0f%%)", counts.Completed, counts.Total(), counts.CompletionRate())
+		}
+	}
 }
