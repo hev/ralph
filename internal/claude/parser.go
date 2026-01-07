@@ -230,6 +230,25 @@ func formatTodoWrite(input interface{}) bool {
 	return true
 }
 
+// formatReadResult formats/truncates Read tool result content
+// Returns formatted string with line count summary if truncated
+func formatReadResult(content string, maxLines int) string {
+	if content == "" {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
+
+	if totalLines <= maxLines {
+		return content
+	}
+
+	// Truncate and show summary
+	truncated := strings.Join(lines[:maxLines], "\n")
+	return fmt.Sprintf("[Read: %d lines]\n%s\n... (%d more lines)", totalLines, truncated, totalLines-maxLines)
+}
+
 // formatEdit formats Edit tool input as a colored diff
 // Returns the file path (for header display) and true if formatting was successful
 func formatEdit(input interface{}) (string, bool) {
