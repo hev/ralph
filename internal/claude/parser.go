@@ -229,3 +229,53 @@ func formatTodoWrite(input interface{}) bool {
 
 	return true
 }
+
+// formatEdit formats Edit tool input as a colored diff
+// Returns the file path (for header display) and true if formatting was successful
+func formatEdit(input interface{}) (string, bool) {
+	inputMap, ok := input.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+
+	filePath, _ := inputMap["file_path"].(string)
+	oldString, _ := inputMap["old_string"].(string)
+	newString, _ := inputMap["new_string"].(string)
+
+	if filePath == "" || (oldString == "" && newString == "") {
+		return "", false
+	}
+
+	// Print old string lines with - prefix in red
+	oldLines := strings.Split(oldString, "\n")
+	newLines := strings.Split(newString, "\n")
+
+	// Truncate if too long
+	const maxLines = 20
+	oldTruncated := len(oldLines) > maxLines
+	newTruncated := len(newLines) > maxLines
+	if oldTruncated {
+		oldLines = oldLines[:maxLines]
+	}
+	if newTruncated {
+		newLines = newLines[:maxLines]
+	}
+
+	for _, line := range oldLines {
+		red.Print("  - ")
+		fmt.Println(line)
+	}
+	if oldTruncated {
+		dim.Println("  ... (truncated)")
+	}
+
+	for _, line := range newLines {
+		green.Print("  + ")
+		fmt.Println(line)
+	}
+	if newTruncated {
+		dim.Println("  ... (truncated)")
+	}
+
+	return filePath, true
+}
