@@ -2,6 +2,8 @@
 
 Run Claude in a loop. Like Ralph Wiggum, the defaults are insane (unlimited iterations, unlimited time).
 
+![source](https://github.com/user-attachments/assets/0d31df40-2edd-45c0-b57f-6b976fb453e2)
+
 ## Installation
 
 ```bash
