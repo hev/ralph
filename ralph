@@ -2,7 +2,7 @@
 #
 # ralph - Run Claude in a loop (like Ralph Wiggum, the defaults are insane)
 #
-set -euo pipefail
+set -uo pipefail
 
 VERSION="1.0.0"
 
@@ -12,7 +12,7 @@ MAX_ITERATIONS=0
 MAX_TIME=0
 AGENT_DIR="./.agent"
 COOLDOWN=1
-VERBOSE=false
+VERBOSE=true
 DRY_RUN=false
 
 # Colors
@@ -35,7 +35,7 @@ Options:
   -t, --max-time SECONDS  Max total runtime in seconds (default: 0 = unlimited)
   -d, --agent-dir DIR     Scratchpad directory (default: ./.agent)
   -c, --cooldown SECONDS  Delay between iterations (default: 1)
-  -v, --verbose           Enable verbose output
+  -q, --quiet             Disable verbose output
   --dry-run               Show what would run without executing
 
 Examples:
@@ -94,8 +94,8 @@ while [[ $# -gt 0 ]]; do
             COOLDOWN="$2"
             shift 2
             ;;
-        -v|--verbose)
-            VERBOSE=true
+        -q|--quiet)
+            VERBOSE=false
             shift
             ;;
         --dry-run)
@@ -126,7 +126,7 @@ fi
 USER_PROMPT=$(cat "$PROMPT_FILE")
 SCRATCHPAD_INSTRUCTIONS="
 
-Use the ${AGENT_DIR} directory as a scratchpad for your work. Keep track of your current status in ${AGENT_DIR}/TODO.md. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+Use the ${AGENT_DIR} directory as a scratchpad for your work. Keep track of your current status in ${AGENT_DIR}/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
 
 FULL_PROMPT="${USER_PROMPT}${SCRATCHPAD_INSTRUCTIONS}"
 
@@ -192,10 +192,49 @@ while true; do
     fi
 
     log "=== Iteration $ITERATION ==="
+    log "Running claude (this may take a moment)..."
 
-    # Run claude (stream output, continue on error)
-    if ! claude --dangerously-skip-permissions --print -p "$FULL_PROMPT"; then
-        log_error "Claude exited with error, continuing to next iteration..."
+    # Run claude with streaming JSON output, format with jq
+    # Use process substitution to preserve exit code
+    exit_code=0
+    while IFS= read -r line; do
+        # Parse and format JSON for readability
+        msg_type=$(echo "$line" | jq -r '.type // empty' 2>/dev/null)
+
+        case "$msg_type" in
+            user)
+                echo -e "${BLUE}━━━ USER ━━━${NC}"
+                echo "$line" | jq -r '.message.content[]? | if .type == "text" then .text elif .type == "tool_result" then "Tool Result: \(.content // .output // "done")" else empty end' 2>/dev/null
+                ;;
+            assistant)
+                echo -e "${GREEN}━━━ ASSISTANT ━━━${NC}"
+                # Show text content
+                echo "$line" | jq -r '.message.content[]? | select(.type == "text") | .text' 2>/dev/null
+                # Show tool calls
+                echo "$line" | jq -r '.message.content[]? | select(.type == "tool_use") | "\u001b[33m[TOOL: \(.name)]\u001b[0m\n\(.input | tostring | .[0:500])"' 2>/dev/null
+                ;;
+            result)
+                echo -e "${YELLOW}━━━ RESULT ━━━${NC}"
+                echo "$line" | jq -r '.subtype // empty' 2>/dev/null
+                echo "$line" | jq -r 'if .result then (.result | .[0:1000]) else empty end' 2>/dev/null
+                ;;
+            system)
+                echo -e "${RED}━━━ SYSTEM ━━━${NC}"
+                echo "$line" | jq -r '.message // .subtype // empty' 2>/dev/null
+                ;;
+            *)
+                # Show other message types raw but compact
+                if [[ -n "$line" ]]; then
+                    echo "$line" | jq -c '.' 2>/dev/null || echo "$line"
+                fi
+                ;;
+        esac
+    done < <(claude --dangerously-skip-permissions --print --verbose --output-format stream-json -p "$FULL_PROMPT" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        log_error "Claude exited with error (code $exit_code), continuing to next iteration..."
+    else
+        log_success "Iteration $ITERATION complete"
     fi
 
     log_verbose "Sleeping for ${COOLDOWN}s..."
