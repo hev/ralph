@@ -230,6 +230,17 @@ func Run(cfg *config.Config) error {
 
 			// Update previous todos for next iteration comparison
 			tracker.UpdatePreviousTodos()
+
+			// Check for stop-on-completion
+			if cfg.StopOnCompletion {
+				if counts, err := tracker.GetTodoCounts(); err == nil {
+					if counts.Pending == 0 && counts.Completed > 0 {
+						exitReason = "all todos complete"
+						log("All todos complete, stopping...")
+						break
+					}
+				}
+			}
 		}
 
 		logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
