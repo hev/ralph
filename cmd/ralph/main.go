@@ -64,7 +64,7 @@ func init() {
 	rootCmd.Flags().StringVar(&cfg.SlackBotToken, "slack-bot-token", cfg.SlackBotToken, "Slack bot token for thread replies")
 
 	// Behavior options
-	rootCmd.Flags().BoolVar(&cfg.StopOnCompletion, "stop-on-completion", cfg.StopOnCompletion, "Exit when all todos are complete")
+	rootCmd.Flags().BoolVarP(&cfg.StopOnCompletion, "stop-on-completion", "s", cfg.StopOnCompletion, "Exit when all todos are complete")
 
 	// Config file flag
 	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to config file (default: ./ralph.yaml or ~/.config/ralph/ralph.yaml)")
@@ -209,7 +209,7 @@ Slack Options:
   --slack-bot-token TOKEN     Bot token for thread replies (or RALPH_SLACK_BOT_TOKEN env)
 
 Behavior Options:
-  --stop-on-completion        Exit when all todos are complete (default: false)
+  -s, --stop-on-completion    Exit when all todos are complete (default: false)
 
 Examples:
   ralph                           # Run forever with defaults
