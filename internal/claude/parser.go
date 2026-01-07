@@ -111,12 +111,37 @@ func printAssistantMessage(msg *Message) {
 			case "text":
 				fmt.Println(block.Text)
 			case "tool_use":
-				yellow.Printf("[TOOL: %s]\n", block.Name)
-				inputStr := formatInput(block.Input)
-				if len(inputStr) > 500 {
-					inputStr = inputStr[:500] + "..."
+				// Use special formatters for specific tools
+				switch block.Name {
+				case "TodoWrite":
+					yellow.Println("[TOOL: TodoWrite]")
+					if !formatTodoWrite(block.Input) {
+						// Fallback to default formatting
+						inputStr := formatInput(block.Input)
+						if len(inputStr) > 500 {
+							inputStr = inputStr[:500] + "..."
+						}
+						fmt.Println(inputStr)
+					}
+				case "Edit":
+					if filePath, ok := formatEdit(block.Input); ok {
+						yellow.Printf("[TOOL: Edit] %s\n", filePath)
+					} else {
+						yellow.Println("[TOOL: Edit]")
+						inputStr := formatInput(block.Input)
+						if len(inputStr) > 500 {
+							inputStr = inputStr[:500] + "..."
+						}
+						fmt.Println(inputStr)
+					}
+				default:
+					yellow.Printf("[TOOL: %s]\n", block.Name)
+					inputStr := formatInput(block.Input)
+					if len(inputStr) > 500 {
+						inputStr = inputStr[:500] + "..."
+					}
+					fmt.Println(inputStr)
 				}
-				fmt.Println(inputStr)
 			}
 		}
 	}
