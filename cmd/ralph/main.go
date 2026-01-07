@@ -54,6 +54,13 @@ func init() {
 	rootCmd.Flags().StringVar(&cfg.MetricsPrefix, "metrics-prefix", cfg.MetricsPrefix, "Metric name prefix")
 	rootCmd.Flags().StringVar(&cfg.ProjectName, "project-name", cfg.ProjectName, "Override project label")
 
+	// Slack options
+	rootCmd.Flags().BoolVar(&cfg.SlackEnabled, "slack-enabled", cfg.SlackEnabled, "Enable Slack notifications")
+	rootCmd.Flags().StringVar(&cfg.SlackWebhookURL, "slack-webhook-url", cfg.SlackWebhookURL, "Slack webhook URL")
+	rootCmd.Flags().StringVar(&cfg.SlackChannel, "slack-channel", cfg.SlackChannel, "Slack channel ID")
+	rootCmd.Flags().StringVar(&cfg.SlackNotifyUsers, "slack-notify-users", cfg.SlackNotifyUsers, "Comma-separated Slack user IDs to @mention on completion")
+	rootCmd.Flags().StringVar(&cfg.SlackBotToken, "slack-bot-token", cfg.SlackBotToken, "Slack bot token for thread replies")
+
 	// Handle -q flag properly (inverts verbose)
 	rootCmd.PreRun = func(cmd *cobra.Command, args []string) {
 		if cmd.Flags().Changed("quiet") {
@@ -86,6 +93,13 @@ OTEL Options:
   --otel-endpoint URL         OTLP endpoint (default: localhost:4317)
   --metrics-prefix PREFIX     Metric name prefix (default: ralph)
   --project-name NAME         Override project label (default: cwd basename)
+
+Slack Options:
+  --slack-enabled             Enable Slack notifications (default: false)
+  --slack-webhook-url URL     Slack webhook URL (or RALPH_SLACK_WEBHOOK_URL env)
+  --slack-channel ID          Slack channel ID (or RALPH_SLACK_CHANNEL env)
+  --slack-notify-users IDS    Comma-separated user IDs to @mention (or RALPH_SLACK_NOTIFY_USERS env)
+  --slack-bot-token TOKEN     Bot token for thread replies (or RALPH_SLACK_BOT_TOKEN env)
 
 Examples:
   ralph                           # Run forever with defaults
