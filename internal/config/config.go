@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 const Version = "0.1.0"
@@ -36,6 +37,35 @@ type Config struct {
 
 	// Session info
 	SessionID string
+
+	// Config file path (set by --config flag)
+	ConfigFile string
+}
+
+// yamlConfig represents the YAML file structure
+type yamlConfig struct {
+	Prompt        string `yaml:"prompt"`
+	MaxIterations int    `yaml:"max_iterations"`
+	MaxTime       int    `yaml:"max_time"`
+	AgentDir      string `yaml:"agent_dir"`
+	Cooldown      int    `yaml:"cooldown"`
+	Verbose       *bool  `yaml:"verbose"`
+	DryRun        *bool  `yaml:"dry_run"`
+
+	OTEL struct {
+		Enabled       *bool  `yaml:"enabled"`
+		Endpoint      string `yaml:"endpoint"`
+		MetricsPrefix string `yaml:"metrics_prefix"`
+		ProjectName   string `yaml:"project_name"`
+	} `yaml:"otel"`
+
+	Slack struct {
+		Enabled     *bool  `yaml:"enabled"`
+		WebhookURL  string `yaml:"webhook_url"`
+		BotToken    string `yaml:"bot_token"`
+		Channel     string `yaml:"channel"`
+		NotifyUsers string `yaml:"notify_users"`
+	} `yaml:"slack"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -94,4 +124,94 @@ func getEnvOrDefault(key, defaultVal string) string {
 // ScratchpadInstructions returns the instructions appended to prompts
 func (c *Config) ScratchpadInstructions() string {
 	return "\n\nUse the " + c.AgentDir + " directory as a scratchpad for your work. Keep track of your current status in " + c.AgentDir + "/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+}
+
+// FindConfigFile searches for a config file in standard locations
+// Returns the path if found, empty string otherwise
+func FindConfigFile() string {
+	// Check current directory first
+	if _, err := os.Stat("ralph.yaml"); err == nil {
+		return "ralph.yaml"
+	}
+
+	// Check user config directory
+	home, err := os.UserHomeDir()
+	if err == nil {
+		userConfig := filepath.Join(home, ".config", "ralph", "ralph.yaml")
+		if _, err := os.Stat(userConfig); err == nil {
+			return userConfig
+		}
+	}
+
+	return ""
+}
+
+// LoadFromFile loads configuration from a YAML file
+// Only non-zero values in the file will override the current config
+func (c *Config) LoadFromFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var yc yamlConfig
+	if err := yaml.Unmarshal(data, &yc); err != nil {
+		return err
+	}
+
+	// Apply non-zero values from YAML to config
+	if yc.Prompt != "" {
+		c.PromptFile = yc.Prompt
+	}
+	if yc.MaxIterations != 0 {
+		c.MaxIterations = yc.MaxIterations
+	}
+	if yc.MaxTime != 0 {
+		c.MaxTime = yc.MaxTime
+	}
+	if yc.AgentDir != "" {
+		c.AgentDir = yc.AgentDir
+	}
+	if yc.Cooldown != 0 {
+		c.Cooldown = yc.Cooldown
+	}
+	if yc.Verbose != nil {
+		c.Verbose = *yc.Verbose
+	}
+	if yc.DryRun != nil {
+		c.DryRun = *yc.DryRun
+	}
+
+	// OTEL options
+	if yc.OTEL.Enabled != nil {
+		c.OTELEnabled = *yc.OTEL.Enabled
+	}
+	if yc.OTEL.Endpoint != "" {
+		c.OTELEndpoint = yc.OTEL.Endpoint
+	}
+	if yc.OTEL.MetricsPrefix != "" {
+		c.MetricsPrefix = yc.OTEL.MetricsPrefix
+	}
+	if yc.OTEL.ProjectName != "" {
+		c.ProjectName = yc.OTEL.ProjectName
+	}
+
+	// Slack options
+	if yc.Slack.Enabled != nil {
+		c.SlackEnabled = *yc.Slack.Enabled
+	}
+	if yc.Slack.WebhookURL != "" {
+		c.SlackWebhookURL = yc.Slack.WebhookURL
+	}
+	if yc.Slack.BotToken != "" {
+		c.SlackBotToken = yc.Slack.BotToken
+	}
+	if yc.Slack.Channel != "" {
+		c.SlackChannel = yc.Slack.Channel
+	}
+	if yc.Slack.NotifyUsers != "" {
+		c.SlackNotifyUsers = yc.Slack.NotifyUsers
+	}
+
+	return nil
 }

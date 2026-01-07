@@ -8,6 +8,7 @@ import (
 	"github.com/hev/ralph/internal/config"
 	"github.com/hev/ralph/internal/runner"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var cfg = config.DefaultConfig()
@@ -28,6 +29,7 @@ var rootCmd = &cobra.Command{
 }
 
 var showVersion bool
+var configFile string
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
@@ -61,11 +63,108 @@ func init() {
 	rootCmd.Flags().StringVar(&cfg.SlackNotifyUsers, "slack-notify-users", cfg.SlackNotifyUsers, "Comma-separated Slack user IDs to @mention on completion")
 	rootCmd.Flags().StringVar(&cfg.SlackBotToken, "slack-bot-token", cfg.SlackBotToken, "Slack bot token for thread replies")
 
-	// Handle -q flag properly (inverts verbose)
-	rootCmd.PreRun = func(cmd *cobra.Command, args []string) {
+	// Config file flag
+	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to config file (default: ./ralph.yaml or ~/.config/ralph/ralph.yaml)")
+
+	// Handle config loading and flag processing
+	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		// Find config file path
+		cfgPath := configFile
+		if cfgPath == "" {
+			cfgPath = config.FindConfigFile()
+		}
+
+		if cfgPath != "" {
+			// Save values from explicitly set flags (they take precedence over YAML)
+			savedValues := make(map[string]interface{})
+			cmd.Flags().Visit(func(f *pflag.Flag) {
+				switch f.Name {
+				case "prompt":
+					savedValues["prompt"] = cfg.PromptFile
+				case "max-iterations":
+					savedValues["max-iterations"] = cfg.MaxIterations
+				case "max-time":
+					savedValues["max-time"] = cfg.MaxTime
+				case "agent-dir":
+					savedValues["agent-dir"] = cfg.AgentDir
+				case "cooldown":
+					savedValues["cooldown"] = cfg.Cooldown
+				case "verbose", "quiet":
+					savedValues["verbose"] = cfg.Verbose
+				case "dry-run":
+					savedValues["dry-run"] = cfg.DryRun
+				case "otel-enabled":
+					savedValues["otel-enabled"] = cfg.OTELEnabled
+				case "otel-endpoint":
+					savedValues["otel-endpoint"] = cfg.OTELEndpoint
+				case "metrics-prefix":
+					savedValues["metrics-prefix"] = cfg.MetricsPrefix
+				case "project-name":
+					savedValues["project-name"] = cfg.ProjectName
+				case "slack-enabled":
+					savedValues["slack-enabled"] = cfg.SlackEnabled
+				case "slack-webhook-url":
+					savedValues["slack-webhook-url"] = cfg.SlackWebhookURL
+				case "slack-channel":
+					savedValues["slack-channel"] = cfg.SlackChannel
+				case "slack-notify-users":
+					savedValues["slack-notify-users"] = cfg.SlackNotifyUsers
+				case "slack-bot-token":
+					savedValues["slack-bot-token"] = cfg.SlackBotToken
+				}
+			})
+
+			// Load YAML config
+			if err := cfg.LoadFromFile(cfgPath); err != nil {
+				return fmt.Errorf("failed to load config file %s: %w", cfgPath, err)
+			}
+			cfg.ConfigFile = cfgPath
+
+			// Restore explicitly set flag values (CLI flags take precedence)
+			for name, val := range savedValues {
+				switch name {
+				case "prompt":
+					cfg.PromptFile = val.(string)
+				case "max-iterations":
+					cfg.MaxIterations = val.(int)
+				case "max-time":
+					cfg.MaxTime = val.(int)
+				case "agent-dir":
+					cfg.AgentDir = val.(string)
+				case "cooldown":
+					cfg.Cooldown = val.(int)
+				case "verbose":
+					cfg.Verbose = val.(bool)
+				case "dry-run":
+					cfg.DryRun = val.(bool)
+				case "otel-enabled":
+					cfg.OTELEnabled = val.(bool)
+				case "otel-endpoint":
+					cfg.OTELEndpoint = val.(string)
+				case "metrics-prefix":
+					cfg.MetricsPrefix = val.(string)
+				case "project-name":
+					cfg.ProjectName = val.(string)
+				case "slack-enabled":
+					cfg.SlackEnabled = val.(bool)
+				case "slack-webhook-url":
+					cfg.SlackWebhookURL = val.(string)
+				case "slack-channel":
+					cfg.SlackChannel = val.(string)
+				case "slack-notify-users":
+					cfg.SlackNotifyUsers = val.(string)
+				case "slack-bot-token":
+					cfg.SlackBotToken = val.(string)
+				}
+			}
+		}
+
+		// Handle -q flag (inverts verbose)
 		if cmd.Flags().Changed("quiet") {
 			cfg.Verbose = false
 		}
+
+		return nil
 	}
 
 	// Add -v flag for version
@@ -87,6 +186,7 @@ Options:
   -c, --cooldown SECONDS      Delay between iterations (default: 1)
   -q, --quiet                 Disable verbose output
   --dry-run                   Show what would run without executing
+  --config FILE               Path to config file (default: ./ralph.yaml)
 
 OTEL Options:
   --otel-enabled              Enable metrics export (default: false)
@@ -107,6 +207,7 @@ Examples:
   ralph -t 3600                   # Run for 1 hour
   ralph -p ~/tasks/build.md       # Use custom prompt file
   ralph -n 10 -c 5                # 10 iterations, 5s cooldown
+  ralph --config ~/myconfig.yaml  # Use custom config file
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))

@@ -86,7 +86,7 @@ func NewCollector(cfg CollectorConfig) (*Collector, error) {
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceName("ralph"),
-			semconv.ServiceVersion("1.0.0"),
+			semconv.ServiceVersion("0.1.0"),
 		),
 	)
 	if err != nil {

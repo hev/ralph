@@ -34,6 +34,7 @@ ralph [OPTIONS]
   -c, --cooldown SECONDS      Delay between iterations (default: 1)
   -q, --quiet                 Disable verbose output
   --dry-run                   Show what would run without executing
+  --config FILE               Path to config file (default: ./ralph.yaml)
   -v, --version               Show version
 
 OTEL Options:
@@ -63,7 +64,55 @@ ralph -n 10 -c 5
 
 # With metrics enabled
 ralph --otel-enabled --otel-endpoint localhost:4317
+
+# Use custom config file
+ralph --config ~/myconfig.yaml
 ```
+
+## Configuration File
+
+Ralph supports configuration via a `ralph.yaml` file. The file is automatically loaded from:
+
+1. `./ralph.yaml` (current directory)
+2. `~/.config/ralph/ralph.yaml` (user config)
+
+You can also specify a custom path with `--config`.
+
+### Example ralph.yaml
+
+```yaml
+# Core options
+prompt: ./prompt.md
+max_iterations: 10
+max_time: 3600
+agent_dir: ./.agent
+cooldown: 5
+verbose: true
+
+# OpenTelemetry
+otel:
+  enabled: true
+  endpoint: localhost:4317
+  metrics_prefix: ralph
+  project_name: my-project
+
+# Slack notifications
+slack:
+  enabled: true
+  webhook_url: https://hooks.slack.com/services/...
+  bot_token: xoxb-...
+  channel: C0123456789
+  notify_users: U0123,U0456
+```
+
+### Configuration Precedence
+
+Configuration is loaded in this order (later sources override earlier):
+
+1. Default values
+2. Configuration file (`ralph.yaml`)
+3. Environment variables (for Slack options)
+4. Command-line flags
 
 ## How It Works
 
@@ -121,6 +170,92 @@ open http://localhost:3000
 make down
 ```
 
+## Slack Notifications
+
+Ralph can send notifications to Slack when sessions start, todos are completed, and sessions end.
+
+### Setup
+
+There are two ways to configure Slack notifications:
+
+#### Option 1: Webhook URL (Simple)
+
+Use an [Incoming Webhook](https://api.slack.com/messaging/webhooks) for basic notifications. This method posts messages but doesn't support threaded replies.
+
+1. Create a Slack app at https://api.slack.com/apps
+2. Enable **Incoming Webhooks** and create a webhook for your channel
+3. Copy the webhook URL
+
+```bash
+export RALPH_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../xxx"
+ralph --slack-enabled
+```
+
+#### Option 2: Bot Token (Recommended)
+
+Use a bot token for full functionality including threaded replies for todo completions.
+
+1. Create a Slack app at https://api.slack.com/apps
+2. Under **OAuth & Permissions**, add these scopes:
+   - `chat:write` - Send messages
+   - `chat:write.public` - Post to channels without joining
+3. Install the app to your workspace
+4. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+5. Get the channel ID (right-click channel > View channel details > copy ID at bottom)
+
+```bash
+export RALPH_SLACK_BOT_TOKEN="xoxb-..."
+export RALPH_SLACK_CHANNEL="C0123456789"
+ralph --slack-enabled
+```
+
+### Configuration Options
+
+| Flag | Environment Variable | Description |
+|------|---------------------|-------------|
+| `--slack-enabled` | - | Enable Slack notifications |
+| `--slack-webhook-url` | `RALPH_SLACK_WEBHOOK_URL` | Webhook URL for posting messages |
+| `--slack-bot-token` | `RALPH_SLACK_BOT_TOKEN` | Bot token for API access |
+| `--slack-channel` | `RALPH_SLACK_CHANNEL` | Channel ID (required with bot token) |
+| `--slack-notify-users` | `RALPH_SLACK_NOTIFY_USERS` | Comma-separated user IDs to @mention on completion |
+
+### Notification Types
+
+**Session Start** - Posted when ralph begins:
+- Project name and GitHub URL (if available)
+- tmux session name (if running in tmux)
+- Session ID and configured limits
+
+**Todo Completed** (bot token only) - Threaded reply when a todo item is checked off:
+- Todo text that was completed
+- Progress (X/Y complete)
+- Iteration number, commit count, duration
+
+**Session End** - Summary when ralph finishes:
+- Total iterations, duration, commits
+- Todo completion percentage
+- Exit reason (completed, max iterations, timeout, interrupted)
+- @mentions configured users
+
+### Examples
+
+```bash
+# Basic webhook setup
+ralph --slack-enabled --slack-webhook-url "https://hooks.slack.com/services/..."
+
+# Full bot setup with user notifications
+ralph --slack-enabled \
+  --slack-bot-token "xoxb-..." \
+  --slack-channel "C0123456789" \
+  --slack-notify-users "U0123456789,U9876543210"
+
+# Using environment variables
+export RALPH_SLACK_BOT_TOKEN="xoxb-..."
+export RALPH_SLACK_CHANNEL="C0123456789"
+export RALPH_SLACK_NOTIFY_USERS="U0123456789"
+ralph --slack-enabled
+```
+
 ## Project Structure
 
 ```
@@ -135,6 +270,10 @@ ralph/
 │   ├── metrics/
 │   │   ├── collector.go      # OTEL metrics setup
 │   │   └── tracker.go        # Metric tracking helpers
+│   ├── slack/
+│   │   ├── client.go         # Slack API client
+│   │   ├── messages.go       # Message formatting
+│   │   └── notifier.go       # High-level notification logic
 │   ├── todo/parser.go        # TODO.md parsing
 │   └── git/tracker.go        # Git commit counting
 ├── grafana/
