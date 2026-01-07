@@ -191,3 +191,41 @@ func IsErrorMessage(line string) bool {
 func stripSystemReminders(text string) string {
 	return strings.TrimSpace(systemReminderRegex.ReplaceAllString(text, ""))
 }
+
+// formatTodoWrite formats TodoWrite tool input as a checklist with status icons
+// Returns true if formatting was successful, false if fallback to default formatting is needed
+func formatTodoWrite(input interface{}) bool {
+	inputMap, ok := input.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	todos, ok := inputMap["todos"].([]interface{})
+	if !ok {
+		return false
+	}
+
+	for _, item := range todos {
+		todoItem, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		content, _ := todoItem["content"].(string)
+		status, _ := todoItem["status"].(string)
+
+		switch status {
+		case "completed":
+			green.Print("  \u2713 ") // checkmark
+			fmt.Println(content)
+		case "in_progress":
+			yellow.Print("  \u25b6 ") // play/arrow
+			fmt.Println(content)
+		default: // pending
+			dim.Print("  \u25cb ") // circle
+			fmt.Println(content)
+		}
+	}
+
+	return true
+}
