@@ -12,6 +12,7 @@ import (
 	"github.com/hev/ralph/internal/claude"
 	"github.com/hev/ralph/internal/config"
 	"github.com/hev/ralph/internal/metrics"
+	"github.com/hev/ralph/internal/slack"
 )
 
 var (
@@ -107,6 +108,19 @@ func Run(cfg *config.Config) error {
 		// Continue without metrics
 	}
 
+	// Initialize Slack notifier
+	notifier := slack.NewNotifier(slack.NotifierConfig{
+		Enabled:       cfg.SlackEnabled,
+		WebhookURL:    cfg.SlackWebhookURL,
+		BotToken:      cfg.SlackBotToken,
+		Channel:       cfg.SlackChannel,
+		NotifyUsers:   cfg.GetSlackNotifyUsers(),
+		ProjectName:   cfg.ProjectName,
+		SessionID:     cfg.SessionID,
+		MaxIterations: cfg.MaxIterations,
+		MaxTime:       cfg.MaxTime,
+	})
+
 	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -114,11 +128,20 @@ func Run(cfg *config.Config) error {
 	// Start metrics session
 	if tracker != nil {
 		tracker.Start(ctx)
+		tracker.UpdatePreviousTodos() // Initialize todo tracking
 		defer func() {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
 			tracker.Stop(shutdownCtx)
 		}()
+	}
+
+	// Send Slack session start notification
+	if notifier.IsEnabled() {
+		logVerbose(cfg, "Slack notifications enabled")
+		if err := notifier.SessionStart(ctx); err != nil {
+			logError("Failed to send Slack session start: %v", err)
+		}
 	}
 
 	// Track state
@@ -141,6 +164,7 @@ func Run(cfg *config.Config) error {
 	for {
 		select {
 		case <-ctx.Done():
+			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
 			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
 			return nil
 		default:
@@ -192,6 +216,20 @@ func Run(cfg *config.Config) error {
 		if tracker != nil {
 			tracker.AfterIteration(ctx, iterationDuration, hadError, "complete")
 			totalCommits = tracker.GetCommitsDelta()
+
+			// Check for newly completed todos and send Slack notifications
+			if notifier.IsEnabled() {
+				newlyCompleted := tracker.GetNewlyCompletedTodos()
+				counts, _ := tracker.GetTodoCounts()
+				for _, item := range newlyCompleted {
+					if err := notifier.TodoCompleted(ctx, item.Text, counts.Completed, counts.Total(), iteration, totalCommits, iterationDuration); err != nil {
+						logError("Failed to send Slack todo notification: %v", err)
+					}
+				}
+			}
+
+			// Update previous todos for next iteration comparison
+			tracker.UpdatePreviousTodos()
 		}
 
 		logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
@@ -199,14 +237,41 @@ func Run(cfg *config.Config) error {
 		// Sleep with context awareness
 		select {
 		case <-ctx.Done():
+			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
 			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
 			return nil
 		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
 		}
 	}
 
+	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
 	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker)
 	return nil
+}
+
+func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
+	if !notifier.IsEnabled() {
+		return
+	}
+
+	elapsed := time.Since(startTime)
+	summary := slack.SessionSummary{
+		Iterations: iterations,
+		Duration:   elapsed,
+		Commits:    commits,
+		ExitReason: exitReason,
+	}
+
+	if tracker != nil {
+		if counts, err := tracker.GetTodoCounts(); err == nil {
+			summary.TodosDone = counts.Completed
+			summary.TodosTotal = counts.Total()
+		}
+	}
+
+	if err := notifier.SessionEnd(ctx, summary); err != nil {
+		logError("Failed to send Slack session end: %v", err)
+	}
 }
 
 func runClaude(ctx context.Context, prompt string) (int, error) {

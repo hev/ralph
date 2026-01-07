@@ -12,10 +12,11 @@ import (
 
 // Tracker provides high-level metrics tracking helpers
 type Tracker struct {
-	collector    *Collector
-	gitTracker   *git.Tracker
-	agentDir     string
-	iterationNum int
+	collector     *Collector
+	gitTracker    *git.Tracker
+	agentDir      string
+	iterationNum  int
+	previousTodos []todo.Item // Previous iteration's todo items
 }
 
 // NewTracker creates a new metrics tracker
@@ -116,4 +117,42 @@ func (t *Tracker) GetCommitsDelta() int {
 // IsEnabled returns whether metrics tracking is enabled
 func (t *Tracker) IsEnabled() bool {
 	return t.collector.IsEnabled()
+}
+
+// GetTodoItems returns the current todo items
+func (t *Tracker) GetTodoItems() []todo.Item {
+	todoPath := filepath.Join(t.agentDir, "TODO.md")
+	items, _ := todo.ParseItems(todoPath)
+	return items
+}
+
+// GetNewlyCompletedTodos compares current todos with previous state and returns newly completed items
+func (t *Tracker) GetNewlyCompletedTodos() []todo.Item {
+	currentItems := t.GetTodoItems()
+	if len(t.previousTodos) == 0 {
+		return nil
+	}
+
+	// Build a set of previously completed todo texts
+	previouslyCompleted := make(map[string]bool)
+	for _, item := range t.previousTodos {
+		if item.Completed {
+			previouslyCompleted[item.Text] = true
+		}
+	}
+
+	// Find items that are now completed but weren't before
+	var newlyCompleted []todo.Item
+	for _, item := range currentItems {
+		if item.Completed && !previouslyCompleted[item.Text] {
+			newlyCompleted = append(newlyCompleted, item)
+		}
+	}
+
+	return newlyCompleted
+}
+
+// UpdatePreviousTodos saves the current todo state for later comparison
+func (t *Tracker) UpdatePreviousTodos() {
+	t.previousTodos = t.GetTodoItems()
 }
