@@ -3,3 +3,18 @@
 
 # Agent scratchpad (local state)
 .agent/
+
+# Build output
+build/
+ralph
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Docker volumes
+prometheus_data/
+grafana_data/
