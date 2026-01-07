@@ -88,7 +88,10 @@ func printUserMessage(msg *Message) {
 		for _, block := range msg.Message.Content {
 			switch block.Type {
 			case "text":
-				fmt.Println(block.Text)
+				text := stripSystemReminders(block.Text)
+				if text != "" {
+					fmt.Println(text)
+				}
 			case "tool_result":
 				content := block.Content
 				if content == "" {
@@ -97,6 +100,9 @@ func printUserMessage(msg *Message) {
 				if content == "" {
 					content = "done"
 				}
+				// Strip system reminders and truncate large results
+				content = stripSystemReminders(content)
+				content = formatReadResult(content, 10)
 				fmt.Printf("Tool Result: %s\n", content)
 			}
 		}
@@ -153,11 +159,13 @@ func printResultMessage(msg *Message) {
 		fmt.Println(msg.Subtype)
 	}
 	if msg.Result != "" {
-		result := msg.Result
+		result := stripSystemReminders(msg.Result)
 		if len(result) > 1000 {
 			result = result[:1000] + "..."
 		}
-		fmt.Println(result)
+		if result != "" {
+			fmt.Println(result)
+		}
 	}
 }
 
