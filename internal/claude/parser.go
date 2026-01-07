@@ -100,10 +100,18 @@ func printUserMessage(msg *Message) {
 				if content == "" {
 					content = "done"
 				}
-				// Strip system reminders and truncate large results
+				// Strip system reminders
 				content = stripSystemReminders(content)
-				content = formatReadResult(content, 10)
-				fmt.Printf("Tool Result: %s\n", content)
+
+				// Check if this is checklist content (TODO.md)
+				if isTodoChecklist(content) {
+					fmt.Println("Tool Result (checklist):")
+					formatChecklist(content)
+				} else {
+					// Truncate large results
+					content = formatReadResult(content, 10)
+					fmt.Printf("Tool Result: %s\n", content)
+				}
 			}
 		}
 	}
@@ -352,4 +360,30 @@ func isTodoChecklist(content string) bool {
 
 	// Consider it a checklist if at least 2 checkbox items found
 	return checkboxCount >= 2
+}
+
+// formatChecklist formats markdown checklist content with colored status icons
+func formatChecklist(content string) {
+	lines := strings.Split(content, "\n")
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Check for completed checkbox
+		if strings.HasPrefix(trimmed, "- [x]") || strings.HasPrefix(trimmed, "- [X]") {
+			text := strings.TrimPrefix(strings.TrimPrefix(trimmed, "- [x]"), "- [X]")
+			text = strings.TrimSpace(text)
+			green.Print("  ✓ ")
+			fmt.Println(text)
+		} else if strings.HasPrefix(trimmed, "- [ ]") {
+			// Pending checkbox
+			text := strings.TrimPrefix(trimmed, "- [ ]")
+			text = strings.TrimSpace(text)
+			dim.Print("  ○ ")
+			fmt.Println(text)
+		} else if trimmed != "" {
+			// Non-checkbox line (headers, etc.) - print as-is but indented
+			fmt.Printf("  %s\n", trimmed)
+		}
+	}
 }
