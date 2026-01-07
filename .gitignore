@@ -1,0 +1,5 @@
+# Claude traces
+.claude/
+
+# Agent scratchpad (local state)
+.agent/
