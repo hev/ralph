@@ -133,6 +133,7 @@ func (c *Config) ScratchpadInstructions() string {
 
 // FindConfigFile searches for a config file in standard locations
 // Returns the path if found, empty string otherwise
+// Deprecated: Use FindConfigFiles() for two-tier config support
 func FindConfigFile() string {
 	// Check current directory first
 	if _, err := os.Stat("ralph.yaml"); err == nil {
@@ -149,6 +150,30 @@ func FindConfigFile() string {
 	}
 
 	return ""
+}
+
+// FindConfigFiles returns paths to config files in load order (global first, local second)
+// Global config: ~/.config/ralph/ralph.yaml
+// Local config: ./ralph.yaml
+// Local values override global values when both are present
+func FindConfigFiles() []string {
+	var paths []string
+
+	// Global config first
+	home, err := os.UserHomeDir()
+	if err == nil {
+		globalConfig := filepath.Join(home, ".config", "ralph", "ralph.yaml")
+		if _, err := os.Stat(globalConfig); err == nil {
+			paths = append(paths, globalConfig)
+		}
+	}
+
+	// Local config second (overrides global)
+	if _, err := os.Stat("ralph.yaml"); err == nil {
+		paths = append(paths, "ralph.yaml")
+	}
+
+	return paths
 }
 
 // LoadFromFile loads configuration from a YAML file
