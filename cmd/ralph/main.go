@@ -71,98 +71,101 @@ func init() {
 
 	// Handle config loading and flag processing
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		// Find config file path
-		cfgPath := configFile
-		if cfgPath == "" {
-			cfgPath = config.FindConfigFile()
+		// Save values from explicitly set flags (they take precedence over YAML)
+		savedValues := make(map[string]interface{})
+		cmd.Flags().Visit(func(f *pflag.Flag) {
+			switch f.Name {
+			case "prompt":
+				savedValues["prompt"] = cfg.PromptFile
+			case "max-iterations":
+				savedValues["max-iterations"] = cfg.MaxIterations
+			case "max-time":
+				savedValues["max-time"] = cfg.MaxTime
+			case "agent-dir":
+				savedValues["agent-dir"] = cfg.AgentDir
+			case "cooldown":
+				savedValues["cooldown"] = cfg.Cooldown
+			case "verbose", "quiet":
+				savedValues["verbose"] = cfg.Verbose
+			case "dry-run":
+				savedValues["dry-run"] = cfg.DryRun
+			case "otel-enabled":
+				savedValues["otel-enabled"] = cfg.OTELEnabled
+			case "otel-endpoint":
+				savedValues["otel-endpoint"] = cfg.OTELEndpoint
+			case "metrics-prefix":
+				savedValues["metrics-prefix"] = cfg.MetricsPrefix
+			case "project-name":
+				savedValues["project-name"] = cfg.ProjectName
+			case "slack-enabled":
+				savedValues["slack-enabled"] = cfg.SlackEnabled
+			case "slack-webhook-url":
+				savedValues["slack-webhook-url"] = cfg.SlackWebhookURL
+			case "slack-channel":
+				savedValues["slack-channel"] = cfg.SlackChannel
+			case "slack-notify-users":
+				savedValues["slack-notify-users"] = cfg.SlackNotifyUsers
+			case "slack-bot-token":
+				savedValues["slack-bot-token"] = cfg.SlackBotToken
+			case "stop-on-completion":
+				savedValues["stop-on-completion"] = cfg.StopOnCompletion
+			}
+		})
+
+		// Load config files (global first, then local overrides)
+		var configPaths []string
+		if configFile != "" {
+			// Explicit config file specified - use only that
+			configPaths = []string{configFile}
+		} else {
+			// Use two-tier config: global + local
+			configPaths = config.FindConfigFiles()
 		}
 
-		if cfgPath != "" {
-			// Save values from explicitly set flags (they take precedence over YAML)
-			savedValues := make(map[string]interface{})
-			cmd.Flags().Visit(func(f *pflag.Flag) {
-				switch f.Name {
-				case "prompt":
-					savedValues["prompt"] = cfg.PromptFile
-				case "max-iterations":
-					savedValues["max-iterations"] = cfg.MaxIterations
-				case "max-time":
-					savedValues["max-time"] = cfg.MaxTime
-				case "agent-dir":
-					savedValues["agent-dir"] = cfg.AgentDir
-				case "cooldown":
-					savedValues["cooldown"] = cfg.Cooldown
-				case "verbose", "quiet":
-					savedValues["verbose"] = cfg.Verbose
-				case "dry-run":
-					savedValues["dry-run"] = cfg.DryRun
-				case "otel-enabled":
-					savedValues["otel-enabled"] = cfg.OTELEnabled
-				case "otel-endpoint":
-					savedValues["otel-endpoint"] = cfg.OTELEndpoint
-				case "metrics-prefix":
-					savedValues["metrics-prefix"] = cfg.MetricsPrefix
-				case "project-name":
-					savedValues["project-name"] = cfg.ProjectName
-				case "slack-enabled":
-					savedValues["slack-enabled"] = cfg.SlackEnabled
-				case "slack-webhook-url":
-					savedValues["slack-webhook-url"] = cfg.SlackWebhookURL
-				case "slack-channel":
-					savedValues["slack-channel"] = cfg.SlackChannel
-				case "slack-notify-users":
-					savedValues["slack-notify-users"] = cfg.SlackNotifyUsers
-				case "slack-bot-token":
-					savedValues["slack-bot-token"] = cfg.SlackBotToken
-				case "stop-on-completion":
-					savedValues["stop-on-completion"] = cfg.StopOnCompletion
-				}
-			})
-
-			// Load YAML config
-			if err := cfg.LoadFromFile(cfgPath); err != nil {
-				return fmt.Errorf("failed to load config file %s: %w", cfgPath, err)
+		for _, path := range configPaths {
+			if err := cfg.LoadFromFile(path); err != nil {
+				return fmt.Errorf("failed to load config file %s: %w", path, err)
 			}
-			cfg.ConfigFile = cfgPath
+			cfg.ConfigFile = path // Track last loaded config file
+		}
 
-			// Restore explicitly set flag values (CLI flags take precedence)
-			for name, val := range savedValues {
-				switch name {
-				case "prompt":
-					cfg.PromptFile = val.(string)
-				case "max-iterations":
-					cfg.MaxIterations = val.(int)
-				case "max-time":
-					cfg.MaxTime = val.(int)
-				case "agent-dir":
-					cfg.AgentDir = val.(string)
-				case "cooldown":
-					cfg.Cooldown = val.(int)
-				case "verbose":
-					cfg.Verbose = val.(bool)
-				case "dry-run":
-					cfg.DryRun = val.(bool)
-				case "otel-enabled":
-					cfg.OTELEnabled = val.(bool)
-				case "otel-endpoint":
-					cfg.OTELEndpoint = val.(string)
-				case "metrics-prefix":
-					cfg.MetricsPrefix = val.(string)
-				case "project-name":
-					cfg.ProjectName = val.(string)
-				case "slack-enabled":
-					cfg.SlackEnabled = val.(bool)
-				case "slack-webhook-url":
-					cfg.SlackWebhookURL = val.(string)
-				case "slack-channel":
-					cfg.SlackChannel = val.(string)
-				case "slack-notify-users":
-					cfg.SlackNotifyUsers = val.(string)
-				case "slack-bot-token":
-					cfg.SlackBotToken = val.(string)
-				case "stop-on-completion":
-					cfg.StopOnCompletion = val.(bool)
-				}
+		// Restore explicitly set flag values (CLI flags take precedence)
+		for name, val := range savedValues {
+			switch name {
+			case "prompt":
+				cfg.PromptFile = val.(string)
+			case "max-iterations":
+				cfg.MaxIterations = val.(int)
+			case "max-time":
+				cfg.MaxTime = val.(int)
+			case "agent-dir":
+				cfg.AgentDir = val.(string)
+			case "cooldown":
+				cfg.Cooldown = val.(int)
+			case "verbose":
+				cfg.Verbose = val.(bool)
+			case "dry-run":
+				cfg.DryRun = val.(bool)
+			case "otel-enabled":
+				cfg.OTELEnabled = val.(bool)
+			case "otel-endpoint":
+				cfg.OTELEndpoint = val.(string)
+			case "metrics-prefix":
+				cfg.MetricsPrefix = val.(string)
+			case "project-name":
+				cfg.ProjectName = val.(string)
+			case "slack-enabled":
+				cfg.SlackEnabled = val.(bool)
+			case "slack-webhook-url":
+				cfg.SlackWebhookURL = val.(string)
+			case "slack-channel":
+				cfg.SlackChannel = val.(string)
+			case "slack-notify-users":
+				cfg.SlackNotifyUsers = val.(string)
+			case "slack-bot-token":
+				cfg.SlackBotToken = val.(string)
+			case "stop-on-completion":
+				cfg.StopOnCompletion = val.(bool)
 			}
 		}
 
