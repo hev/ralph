@@ -71,14 +71,36 @@ ralph --config ~/myconfig.yaml
 
 ## Configuration File
 
-Ralph supports configuration via a `ralph.yaml` file. The file is automatically loaded from:
+Ralph supports a two-tier configuration system with global and local config files.
 
-1. `./ralph.yaml` (current directory)
-2. `~/.config/ralph/ralph.yaml` (user config)
+### Config File Locations
 
-You can also specify a custom path with `--config`.
+1. **Global config**: `~/.config/ralph/ralph.yaml` - Shared settings across all projects
+2. **Local config**: `./ralph.yaml` - Project-specific overrides
 
-### Example ralph.yaml
+Both files are loaded automatically (global first, then local). Local values override global values.
+
+You can also specify a single config file with `--config` (bypasses two-tier loading).
+
+### Example: Two-Tier Setup
+
+**Global** (`~/.config/ralph/ralph.yaml`):
+```yaml
+# Shared across all projects
+slack:
+  enabled: true
+  bot_token: xoxb-...  # Your bot token - shared across projects
+```
+
+**Local** (`./ralph.yaml`):
+```yaml
+# Project-specific settings
+slack:
+  channel: C0123456789        # This project's channel
+  notify_users: U0123,U0456   # Users to notify for this project
+```
+
+### Full Configuration Reference
 
 ```yaml
 # Core options
@@ -110,9 +132,10 @@ slack:
 Configuration is loaded in this order (later sources override earlier):
 
 1. Default values
-2. Configuration file (`ralph.yaml`)
-3. Environment variables (for Slack options)
-4. Command-line flags
+2. Global config file (`~/.config/ralph/ralph.yaml`)
+3. Local config file (`./ralph.yaml`)
+4. Environment variables (for Slack options)
+5. Command-line flags
 
 ## How It Works
 
