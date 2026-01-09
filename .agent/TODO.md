@@ -16,8 +16,8 @@
 - [x] Test 3: `internal/config` - Configuration loading and merging - 96.3% coverage
 - [x] Test 4: `internal/claude` - Parser tests - 77.8% coverage
 - [x] Test 5: Create interfaces for mocking
-- [ ] Test 6: `internal/git` - Tracker and PR tests
-- [ ] Test 7: `internal/worktree` - Manager tests
+- [x] Test 6: `internal/git` - Tracker and PR tests - 74.2% coverage
+- [x] Test 7: `internal/worktree` - Manager tests - 82.0% coverage
 - [ ] Test 8: `internal/slack/client` - HTTP mocking tests
 - [ ] Test 9: `internal/metrics` - Tracker tests
 - [ ] Test 10: `internal/claude/client` - Process mocking tests
