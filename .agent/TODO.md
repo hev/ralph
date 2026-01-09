@@ -12,7 +12,7 @@
 ## Test Coverage (per prompt.md plan)
 
 - [x] Test 1: `internal/todo` - Parser tests (ParseFile, ParseItems, Counts methods) - 91.8% coverage
-- [-] Test 2: `internal/slack/messages` - Pure formatting functions
+- [x] Test 2: `internal/slack/messages` - Pure formatting functions - 100% coverage
 - [ ] Test 3: `internal/config` - Configuration loading and merging
 - [ ] Test 4: `internal/claude` - Parser tests
 - [ ] Test 5: Create interfaces for mocking
