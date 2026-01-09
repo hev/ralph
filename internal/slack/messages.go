@@ -72,6 +72,12 @@ type CleanupCompleteInfo struct {
 	Duration     time.Duration
 }
 
+// PRCreatedInfo contains information for PR creation messages
+type PRCreatedInfo struct {
+	PRURL string
+	Title string
+}
+
 // FormatSessionStart creates the session start message
 func FormatSessionStart(info SessionStartInfo) *WebhookMessage {
 	var lines []string
@@ -244,6 +250,19 @@ func FormatCleanupComplete(info CleanupCompleteInfo) *ChatPostMessageRequest {
 		lines = append(lines, "• No artifacts found to clean up")
 	}
 	lines = append(lines, fmt.Sprintf("• Duration: %s", formatDuration(info.Duration)))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatPRCreated creates a PR created message
+func FormatPRCreated(info PRCreatedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Pull request created*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("*Title:* %s", info.Title))
+	lines = append(lines, fmt.Sprintf("*URL:* <%s|View PR>", info.PRURL))
 
 	return &ChatPostMessageRequest{
 		Text: strings.Join(lines, "\n"),

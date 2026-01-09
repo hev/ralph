@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/hev/ralph/internal/claude"
 	"github.com/hev/ralph/internal/config"
+	"github.com/hev/ralph/internal/git"
 	"github.com/hev/ralph/internal/metrics"
 	"github.com/hev/ralph/internal/slack"
 	"github.com/hev/ralph/internal/worktree"
@@ -225,7 +227,7 @@ func Run(cfg *config.Config) error {
 		select {
 		case <-ctx.Done():
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
-			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
 			cleanupWorktree(cfg, wtManager)
 			return nil
 		default:
@@ -321,7 +323,7 @@ func Run(cfg *config.Config) error {
 		select {
 		case <-ctx.Done():
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
-			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
 			cleanupWorktree(cfg, wtManager)
 			return nil
 		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
@@ -343,8 +345,18 @@ func Run(cfg *config.Config) error {
 		}
 	}
 
+	// Run PR creation phase if enabled
+	var prURL string
+	if cfg.PREnabled {
+		var prErr error
+		prURL, prErr = runPRPhase(ctx, cfg, notifier, tracker)
+		if prErr != nil {
+			logError("PR creation failed: %v", prErr)
+		}
+	}
+
 	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
-	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker)
+	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker, prURL)
 	cleanupWorktree(cfg, wtManager)
 	return nil
 }
@@ -552,6 +564,127 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 	return ""
 }
 
+// runPRPhase creates a pull request for the changes made
+// Returns the PR URL if successful, or an error
+func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker) (string, error) {
+	log("=== Starting PR Creation Phase ===")
+
+	// Check if we're on a branch other than default
+	currentBranch, err := git.GetCurrentBranch()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	defaultBranch, err := git.GetDefaultBranch()
+	if err != nil {
+		defaultBranch = "main"
+	}
+
+	if currentBranch == defaultBranch {
+		logError("Cannot create PR: currently on default branch (%s)", defaultBranch)
+		return "", fmt.Errorf("cannot create PR from default branch")
+	}
+
+	// Push the branch if not already pushed
+	if !git.IsBranchPushed() {
+		log("Pushing branch %s to remote...", currentBranch)
+		if err := git.PushBranch(); err != nil {
+			return "", fmt.Errorf("failed to push branch: %w", err)
+		}
+	}
+
+	// Generate PR body
+	baseBranch := cfg.PRBase
+	if baseBranch == "" {
+		baseBranch = defaultBranch
+	}
+
+	body := generatePRBody(cfg, tracker, baseBranch)
+
+	// Generate title if not provided
+	title := cfg.PRTitle
+	if title == "" {
+		title = generatePRTitle(currentBranch)
+	}
+
+	// Create the PR
+	log("Creating pull request...")
+	prConfig := git.PRConfig{
+		Title: title,
+		Base:  baseBranch,
+		Body:  body,
+	}
+
+	result, err := git.CreatePR(prConfig)
+	if err != nil {
+		return "", err
+	}
+
+	logSuccess("PR created: %s", result.URL)
+
+	// Send Slack notification
+	if notifier.IsEnabled() {
+		if err := notifier.PRCreated(ctx, result.URL, title); err != nil {
+			logError("Failed to send Slack PR notification: %v", err)
+		}
+	}
+
+	return result.URL, nil
+}
+
+// generatePRTitle generates a PR title from the branch name
+func generatePRTitle(branchName string) string {
+	// Remove common prefixes
+	title := branchName
+	for _, prefix := range []string{"ralph/", "feature/", "fix/", "bugfix/", "hotfix/"} {
+		title = strings.TrimPrefix(title, prefix)
+	}
+
+	// Convert dashes/underscores to spaces and capitalize
+	title = strings.ReplaceAll(title, "-", " ")
+	title = strings.ReplaceAll(title, "_", " ")
+
+	// Capitalize first letter
+	if len(title) > 0 {
+		title = strings.ToUpper(string(title[0])) + title[1:]
+	}
+
+	return title
+}
+
+// generatePRBody generates a PR body with summary of changes
+func generatePRBody(cfg *config.Config, tracker *metrics.Tracker, baseBranch string) string {
+	var body strings.Builder
+
+	body.WriteString("## Summary\n\n")
+	body.WriteString("Changes made by Ralph automated loop.\n\n")
+
+	// Add todo summary if available
+	if tracker != nil {
+		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
+			body.WriteString(fmt.Sprintf("- Completed %d/%d tasks (%.0f%%)\n", counts.Completed, counts.Total(), counts.CompletionRate()))
+		}
+	}
+
+	// Add commit summary
+	commits, err := git.GetCommitsSinceBase(baseBranch)
+	if err == nil && len(commits) > 0 {
+		body.WriteString(fmt.Sprintf("- Made %d commits\n", len(commits)))
+
+		if len(commits) <= 10 {
+			body.WriteString("\n### Commits\n\n")
+			for _, commit := range commits {
+				body.WriteString(fmt.Sprintf("- %s\n", commit))
+			}
+		}
+	}
+
+	body.WriteString("\n---\n\n")
+	body.WriteString("*Generated by [Ralph](https://github.com/hev/ralph)*\n")
+
+	return body.String()
+}
+
 func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
 	if !notifier.IsEnabled() {
 		return
@@ -596,7 +729,7 @@ func runClaude(ctx context.Context, prompt string, model string) (int, error) {
 	return client.Wait()
 }
 
-func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
+func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, prURL string) {
 	elapsed := time.Since(startTime)
 	fmt.Println()
 	logSuccess("=== Ralph Summary ===")
@@ -610,6 +743,11 @@ func printSummary(startTime time.Time, iterations int, exitReason string, commit
 		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
 			logSuccess("Todos: %d/%d complete (%.0f%%)", counts.Completed, counts.Total(), counts.CompletionRate())
 		}
+	}
+
+	// Show PR URL if created
+	if prURL != "" {
+		logSuccess("PR created: %s", prURL)
 	}
 }
 

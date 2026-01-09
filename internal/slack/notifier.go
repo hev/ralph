@@ -274,6 +274,31 @@ func (n *Notifier) CleanupComplete(ctx context.Context, filesRemoved int, durati
 	})
 }
 
+// PRCreated sends a notification when a PR is created
+func (n *Notifier) PRCreated(ctx context.Context, prURL, title string) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatPRCreated(PRCreatedInfo{
+		PRURL: prURL,
+		Title: title,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
 // SessionEnd sends the final session summary
 func (n *Notifier) SessionEnd(ctx context.Context, summary SessionSummary) error {
 	if !n.IsEnabled() {
