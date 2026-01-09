@@ -3,8 +3,10 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/hev/ralph/internal/config"
 	"github.com/hev/ralph/internal/metrics"
 	"github.com/hev/ralph/internal/slack"
+	"github.com/hev/ralph/internal/worktree"
 )
 
 var (
@@ -52,11 +55,56 @@ func Run(cfg *config.Config) error {
 		return err
 	}
 
+	// Setup worktree if enabled
+	var wtManager *worktree.Manager
+	if cfg.WorktreeEnabled {
+		wtManager = worktree.NewManager(cfg.WorktreeBaseDir, cfg.WorktreeBranchPrefix, cfg.WorktreeCleanup)
+
+		log("Creating worktree...")
+		worktreePath, err := wtManager.Create(cfg.WorktreeBranch)
+		if err != nil {
+			logError("Failed to create worktree: %v", err)
+			return err
+		}
+		log("Worktree created at: %s", worktreePath)
+		log("Branch: %s", wtManager.GetBranchName())
+
+		// Copy prompt file to worktree
+		promptAbsPath, err := filepath.Abs(cfg.PromptFile)
+		if err != nil {
+			logError("Failed to get absolute path for prompt: %v", err)
+			wtManager.Remove()
+			return err
+		}
+		promptBasename := filepath.Base(cfg.PromptFile)
+		worktreePromptPath := filepath.Join(worktreePath, promptBasename)
+		if err := copyFile(promptAbsPath, worktreePromptPath); err != nil {
+			logError("Failed to copy prompt file to worktree: %v", err)
+			wtManager.Remove()
+			return err
+		}
+		logVerbose(cfg, "Copied prompt file to worktree: %s", worktreePromptPath)
+
+		// Change to worktree directory
+		if err := os.Chdir(worktreePath); err != nil {
+			logError("Failed to change to worktree directory: %v", err)
+			wtManager.Remove()
+			return err
+		}
+
+		// Update config paths to be relative to worktree
+		cfg.PromptFile = promptBasename
+		cfg.AgentDir = "./.agent"
+	}
+
 	// Create agent directory if missing
 	if _, err := os.Stat(cfg.AgentDir); os.IsNotExist(err) {
 		log("Creating agent directory: %s", cfg.AgentDir)
 		if err := os.MkdirAll(cfg.AgentDir, 0755); err != nil {
 			logError("Failed to create agent directory: %v", err)
+			if wtManager != nil {
+				wtManager.Remove()
+			}
 			return err
 		}
 	}
@@ -84,6 +132,10 @@ func Run(cfg *config.Config) error {
 	}
 	logVerbose(cfg, "Agent dir: %s", cfg.AgentDir)
 	logVerbose(cfg, "Cooldown: %ds", cfg.Cooldown)
+	if cfg.WorktreeEnabled && wtManager != nil {
+		logVerbose(cfg, "Worktree: %s", wtManager.GetWorktreePath())
+		logVerbose(cfg, "Branch: %s", wtManager.GetBranchName())
+	}
 	if cfg.OTELEnabled {
 		logVerbose(cfg, "OTEL endpoint: %s", cfg.OTELEndpoint)
 		logVerbose(cfg, "Session ID: %s", cfg.SessionID)
@@ -166,6 +218,7 @@ func Run(cfg *config.Config) error {
 		case <-ctx.Done():
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
 			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
+			cleanupWorktree(cfg, wtManager)
 			return nil
 		default:
 		}
@@ -250,6 +303,7 @@ func Run(cfg *config.Config) error {
 		case <-ctx.Done():
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
 			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
+			cleanupWorktree(cfg, wtManager)
 			return nil
 		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
 		}
@@ -257,6 +311,7 @@ func Run(cfg *config.Config) error {
 
 	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
 	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker)
+	cleanupWorktree(cfg, wtManager)
 	return nil
 }
 
@@ -318,5 +373,51 @@ func printSummary(startTime time.Time, iterations int, exitReason string, commit
 		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
 			logSuccess("Todos: %d/%d complete (%.0f%%)", counts.Completed, counts.Total(), counts.CompletionRate())
 		}
+	}
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	return err
+}
+
+// cleanupWorktree pushes the branch and removes the worktree if cleanup is enabled
+func cleanupWorktree(cfg *config.Config, wtManager *worktree.Manager) {
+	if wtManager == nil {
+		return
+	}
+
+	// Push branch to remote before cleanup
+	log("Pushing branch %s to remote...", wtManager.GetBranchName())
+	if err := wtManager.Push(); err != nil {
+		logError("Failed to push branch: %v", err)
+		// Continue with cleanup even if push fails
+	} else {
+		logSuccess("Branch pushed successfully")
+	}
+
+	// Cleanup worktree if enabled
+	if cfg.WorktreeCleanup {
+		log("Cleaning up worktree...")
+		if err := wtManager.Remove(); err != nil {
+			logError("Failed to remove worktree: %v", err)
+		} else {
+			logSuccess("Worktree removed")
+		}
+	} else {
+		log("Keeping worktree at: %s", wtManager.GetWorktreePath())
 	}
 }

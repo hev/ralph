@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hevnly/ralph/internal/git"
+	"github.com/hev/ralph/internal/git"
 )
 
 // Manager handles git worktree operations
