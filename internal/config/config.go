@@ -38,6 +38,13 @@ type Config struct {
 	// Behavior options
 	StopOnCompletion bool // Exit when all todos are complete
 
+	// Worktree options
+	WorktreeEnabled      bool   // Run in a git worktree
+	WorktreeBranch       string // Branch name for worktree (empty = auto-generate)
+	WorktreeBaseDir      string // Where to create worktrees
+	WorktreeBranchPrefix string // Prefix for auto-generated branch names
+	WorktreeCleanup      bool   // Delete worktree on completion
+
 	// Session info
 	SessionID string
 
@@ -71,6 +78,13 @@ type yamlConfig struct {
 	} `yaml:"slack"`
 
 	StopOnCompletion *bool `yaml:"stop_on_completion"`
+
+	Worktree struct {
+		Enabled      *bool  `yaml:"enabled"`
+		BaseDir      string `yaml:"base_dir"`
+		BranchPrefix string `yaml:"branch_prefix"`
+		Cleanup      *bool  `yaml:"cleanup"`
+	} `yaml:"worktree"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -97,6 +111,12 @@ func DefaultConfig() *Config {
 		SlackChannel:     getEnvOrDefault("RALPH_SLACK_CHANNEL", ""),
 		SlackNotifyUsers: getEnvOrDefault("RALPH_SLACK_NOTIFY_USERS", ""),
 		SlackBotToken:    getEnvOrDefault("RALPH_SLACK_BOT_TOKEN", ""),
+
+		WorktreeEnabled:      false,
+		WorktreeBranch:       "",
+		WorktreeBaseDir:      "/tmp/ralph-worktrees",
+		WorktreeBranchPrefix: "ralph/",
+		WorktreeCleanup:      true,
 
 		SessionID: uuid.New().String(),
 	}
@@ -246,6 +266,20 @@ func (c *Config) LoadFromFile(path string) error {
 	// Behavior options
 	if yc.StopOnCompletion != nil {
 		c.StopOnCompletion = *yc.StopOnCompletion
+	}
+
+	// Worktree options
+	if yc.Worktree.Enabled != nil {
+		c.WorktreeEnabled = *yc.Worktree.Enabled
+	}
+	if yc.Worktree.BaseDir != "" {
+		c.WorktreeBaseDir = yc.Worktree.BaseDir
+	}
+	if yc.Worktree.BranchPrefix != "" {
+		c.WorktreeBranchPrefix = yc.Worktree.BranchPrefix
+	}
+	if yc.Worktree.Cleanup != nil {
+		c.WorktreeCleanup = *yc.Worktree.Cleanup
 	}
 
 	return nil
