@@ -38,6 +38,11 @@ type Config struct {
 	// Behavior options
 	StopOnCompletion bool // Exit when all todos are complete
 
+	// Code review options
+	CodeReviewEnabled       bool   // Run code review phase after todos complete
+	CodeReviewMaxIterations int    // Max iterations for code review phase
+	CodeReviewPrompt        string // Prompt to use for code review phase
+
 	// Worktree options
 	WorktreeEnabled      bool   // Run in a git worktree
 	WorktreeBranch       string // Branch name for worktree (empty = auto-generate)
@@ -79,6 +84,12 @@ type yamlConfig struct {
 
 	StopOnCompletion *bool `yaml:"stop_on_completion"`
 
+	CodeReview struct {
+		Enabled       *bool  `yaml:"enabled"`
+		MaxIterations int    `yaml:"max_iterations"`
+		Prompt        string `yaml:"prompt"`
+	} `yaml:"code_review"`
+
 	Worktree struct {
 		Enabled      *bool  `yaml:"enabled"`
 		BaseDir      string `yaml:"base_dir"`
@@ -111,6 +122,10 @@ func DefaultConfig() *Config {
 		SlackChannel:     getEnvOrDefault("RALPH_SLACK_CHANNEL", ""),
 		SlackNotifyUsers: getEnvOrDefault("RALPH_SLACK_NOTIFY_USERS", ""),
 		SlackBotToken:    getEnvOrDefault("RALPH_SLACK_BOT_TOKEN", ""),
+
+		CodeReviewEnabled:       false,
+		CodeReviewMaxIterations: 3,
+		CodeReviewPrompt:        "",
 
 		WorktreeEnabled:      false,
 		WorktreeBranch:       "",
@@ -149,6 +164,28 @@ func getEnvOrDefault(key, defaultVal string) string {
 // ScratchpadInstructions returns the instructions appended to prompts
 func (c *Config) ScratchpadInstructions() string {
 	return "\n\nUse the " + c.AgentDir + " directory as a scratchpad for your work. Keep track of your current status in " + c.AgentDir + "/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+}
+
+// CodeReviewInstructions returns the default code review prompt
+func (c *Config) CodeReviewInstructions() string {
+	if c.CodeReviewPrompt != "" {
+		return c.CodeReviewPrompt
+	}
+	return `Review the code changes made in this session. Look for:
+1. Bugs or logic errors
+2. Security vulnerabilities
+3. Performance issues
+4. Code style inconsistencies
+5. Missing error handling
+6. Incomplete implementations
+
+For each issue found:
+- Create a TODO item in ` + c.AgentDir + `/TODO.md describing the fix needed
+- Use checkboxes (- [ ] for pending, - [x] for done)
+
+If no issues are found, add a single TODO item: "- [x] Code review complete - no issues found"
+
+Make a commit and push your changes after every single file edit.`
 }
 
 // FindConfigFile searches for a config file in standard locations
@@ -266,6 +303,17 @@ func (c *Config) LoadFromFile(path string) error {
 	// Behavior options
 	if yc.StopOnCompletion != nil {
 		c.StopOnCompletion = *yc.StopOnCompletion
+	}
+
+	// Code review options
+	if yc.CodeReview.Enabled != nil {
+		c.CodeReviewEnabled = *yc.CodeReview.Enabled
+	}
+	if yc.CodeReview.MaxIterations != 0 {
+		c.CodeReviewMaxIterations = yc.CodeReview.MaxIterations
+	}
+	if yc.CodeReview.Prompt != "" {
+		c.CodeReviewPrompt = yc.CodeReview.Prompt
 	}
 
 	// Worktree options
