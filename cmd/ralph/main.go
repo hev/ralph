@@ -71,6 +71,9 @@ func init() {
 	rootCmd.Flags().IntVar(&cfg.CodeReviewMaxIterations, "code-review-max-iterations", cfg.CodeReviewMaxIterations, "Max iterations for code review phase")
 	rootCmd.Flags().StringVar(&cfg.CodeReviewPrompt, "code-review-prompt", cfg.CodeReviewPrompt, "Custom prompt for code review phase")
 
+	// Cleanup options
+	rootCmd.Flags().BoolVar(&cfg.CleanupEnabled, "cleanup", cfg.CleanupEnabled, "Run cleanup phase after code review")
+
 	// Worktree options
 	rootCmd.Flags().BoolVarP(&cfg.WorktreeEnabled, "worktree", "w", cfg.WorktreeEnabled, "Run in a git worktree")
 	rootCmd.Flags().StringVarP(&cfg.WorktreeBranch, "branch", "b", cfg.WorktreeBranch, "Branch name for worktree (empty = auto-generate)")
@@ -125,6 +128,8 @@ func init() {
 				savedValues["code-review-max-iterations"] = cfg.CodeReviewMaxIterations
 			case "code-review-prompt":
 				savedValues["code-review-prompt"] = cfg.CodeReviewPrompt
+			case "cleanup":
+				savedValues["cleanup"] = cfg.CleanupEnabled
 			case "worktree":
 				savedValues["worktree"] = cfg.WorktreeEnabled
 			case "branch":
@@ -194,6 +199,8 @@ func init() {
 				cfg.CodeReviewMaxIterations = val.(int)
 			case "code-review-prompt":
 				cfg.CodeReviewPrompt = val.(string)
+			case "cleanup":
+				cfg.CleanupEnabled = val.(bool)
 			case "worktree":
 				cfg.WorktreeEnabled = val.(bool)
 			case "branch":
@@ -253,6 +260,9 @@ Code Review Options:
   --code-review-max-iterations N  Max iterations for code review phase (default: 3)
   --code-review-prompt TEXT   Custom prompt for code review phase
 
+Cleanup Options:
+  --cleanup                   Run cleanup phase after code review (default: false)
+
 Worktree Options:
   -w, --worktree              Run in a git worktree (default: false)
   -b, --branch NAME           Branch name for worktree (default: auto-generate)
@@ -269,6 +279,7 @@ Examples:
   ralph -w -b feature/my-task     # Run in worktree with specific branch
   ralph -w -k                     # Run in worktree, keep after completion
   ralph -s --code-review          # Stop on completion, then run code review
+  ralph -s --code-review --cleanup # Full pipeline: work, review, cleanup
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))
