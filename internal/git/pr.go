@@ -14,6 +14,25 @@ type PRConfig struct {
 	Body  string // PR body/description
 }
 
+// BuildPRArgs builds the gh pr create command arguments from config
+func BuildPRArgs(cfg PRConfig) []string {
+	args := []string{"pr", "create"}
+
+	if cfg.Title != "" {
+		args = append(args, "--title", cfg.Title)
+	}
+
+	if cfg.Base != "" {
+		args = append(args, "--base", cfg.Base)
+	}
+
+	if cfg.Body != "" {
+		args = append(args, "--body", cfg.Body)
+	}
+
+	return args
+}
+
 // PRResult contains the result of PR creation
 type PRResult struct {
 	URL    string // The URL of the created PR
@@ -28,19 +47,7 @@ func CreatePR(cfg PRConfig) (*PRResult, error) {
 	}
 
 	// Build the gh pr create command
-	args := []string{"pr", "create"}
-
-	if cfg.Title != "" {
-		args = append(args, "--title", cfg.Title)
-	}
-
-	if cfg.Base != "" {
-		args = append(args, "--base", cfg.Base)
-	}
-
-	if cfg.Body != "" {
-		args = append(args, "--body", cfg.Body)
-	}
+	args := BuildPRArgs(cfg)
 
 	cmd := exec.Command("gh", args...)
 	var stdout, stderr bytes.Buffer
