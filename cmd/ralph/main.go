@@ -66,6 +66,11 @@ func init() {
 	// Behavior options
 	rootCmd.Flags().BoolVarP(&cfg.StopOnCompletion, "stop-on-completion", "s", cfg.StopOnCompletion, "Exit when all todos are complete")
 
+	// Code review options
+	rootCmd.Flags().BoolVar(&cfg.CodeReviewEnabled, "code-review", cfg.CodeReviewEnabled, "Run code review phase after todos complete")
+	rootCmd.Flags().IntVar(&cfg.CodeReviewMaxIterations, "code-review-max-iterations", cfg.CodeReviewMaxIterations, "Max iterations for code review phase")
+	rootCmd.Flags().StringVar(&cfg.CodeReviewPrompt, "code-review-prompt", cfg.CodeReviewPrompt, "Custom prompt for code review phase")
+
 	// Worktree options
 	rootCmd.Flags().BoolVarP(&cfg.WorktreeEnabled, "worktree", "w", cfg.WorktreeEnabled, "Run in a git worktree")
 	rootCmd.Flags().StringVarP(&cfg.WorktreeBranch, "branch", "b", cfg.WorktreeBranch, "Branch name for worktree (empty = auto-generate)")
@@ -114,6 +119,12 @@ func init() {
 				savedValues["slack-bot-token"] = cfg.SlackBotToken
 			case "stop-on-completion":
 				savedValues["stop-on-completion"] = cfg.StopOnCompletion
+			case "code-review":
+				savedValues["code-review"] = cfg.CodeReviewEnabled
+			case "code-review-max-iterations":
+				savedValues["code-review-max-iterations"] = cfg.CodeReviewMaxIterations
+			case "code-review-prompt":
+				savedValues["code-review-prompt"] = cfg.CodeReviewPrompt
 			case "worktree":
 				savedValues["worktree"] = cfg.WorktreeEnabled
 			case "branch":
@@ -177,6 +188,12 @@ func init() {
 				cfg.SlackBotToken = val.(string)
 			case "stop-on-completion":
 				cfg.StopOnCompletion = val.(bool)
+			case "code-review":
+				cfg.CodeReviewEnabled = val.(bool)
+			case "code-review-max-iterations":
+				cfg.CodeReviewMaxIterations = val.(int)
+			case "code-review-prompt":
+				cfg.CodeReviewPrompt = val.(string)
 			case "worktree":
 				cfg.WorktreeEnabled = val.(bool)
 			case "branch":
@@ -231,6 +248,11 @@ Slack Options:
 Behavior Options:
   -s, --stop-on-completion    Exit when all todos are complete (default: false)
 
+Code Review Options:
+  --code-review               Run code review phase after todos complete (default: false)
+  --code-review-max-iterations N  Max iterations for code review phase (default: 3)
+  --code-review-prompt TEXT   Custom prompt for code review phase
+
 Worktree Options:
   -w, --worktree              Run in a git worktree (default: false)
   -b, --branch NAME           Branch name for worktree (default: auto-generate)
@@ -246,6 +268,7 @@ Examples:
   ralph -w                        # Run in a worktree (auto branch)
   ralph -w -b feature/my-task     # Run in worktree with specific branch
   ralph -w -k                     # Run in worktree, keep after completion
+  ralph -s --code-review          # Stop on completion, then run code review
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))
