@@ -15,7 +15,7 @@
 - [x] Test 2: `internal/slack/messages` - Pure formatting functions - 100% coverage
 - [x] Test 3: `internal/config` - Configuration loading and merging - 96.3% coverage
 - [x] Test 4: `internal/claude` - Parser tests - 77.8% coverage
-- [ ] Test 5: Create interfaces for mocking
+- [x] Test 5: Create interfaces for mocking
 - [ ] Test 6: `internal/git` - Tracker and PR tests
 - [ ] Test 7: `internal/worktree` - Manager tests
 - [ ] Test 8: `internal/slack/client` - HTTP mocking tests
