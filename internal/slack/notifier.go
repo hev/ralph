@@ -225,6 +225,55 @@ func (n *Notifier) CodeReviewComplete(ctx context.Context, iterations, issuesFou
 	})
 }
 
+// CleanupStarted sends a notification when cleanup phase starts
+func (n *Notifier) CleanupStarted(ctx context.Context, patternCount int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCleanupStarted(CleanupStartedInfo{
+		PatternCount: patternCount,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// CleanupComplete sends a notification when cleanup phase completes
+func (n *Notifier) CleanupComplete(ctx context.Context, filesRemoved int, duration time.Duration) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCleanupComplete(CleanupCompleteInfo{
+		FilesRemoved: filesRemoved,
+		Duration:     duration,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
 // SessionEnd sends the final session summary
 func (n *Notifier) SessionEnd(ctx context.Context, summary SessionSummary) error {
 	if !n.IsEnabled() {

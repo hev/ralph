@@ -55,10 +55,21 @@ type CodeReviewStartedInfo struct {
 
 // CodeReviewCompleteInfo contains information for code review complete messages
 type CodeReviewCompleteInfo struct {
-	Iterations    int
-	IssuesFound   int
-	IssuesFixed   int
-	Duration      time.Duration
+	Iterations  int
+	IssuesFound int
+	IssuesFixed int
+	Duration    time.Duration
+}
+
+// CleanupStartedInfo contains information for cleanup phase start messages
+type CleanupStartedInfo struct {
+	PatternCount int
+}
+
+// CleanupCompleteInfo contains information for cleanup phase complete messages
+type CleanupCompleteInfo struct {
+	FilesRemoved int
+	Duration     time.Duration
 }
 
 // FormatSessionStart creates the session start message
@@ -208,4 +219,33 @@ func formatDuration(d time.Duration) string {
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
 	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+// FormatCleanupStarted creates a cleanup started message
+func FormatCleanupStarted(info CleanupStartedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Cleanup phase started*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Scanning %d patterns for artifacts to remove", info.PatternCount))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatCleanupComplete creates a cleanup complete message
+func FormatCleanupComplete(info CleanupCompleteInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Cleanup complete*")
+	lines = append(lines, "")
+	if info.FilesRemoved > 0 {
+		lines = append(lines, fmt.Sprintf("• Files removed: %d", info.FilesRemoved))
+	} else {
+		lines = append(lines, "• No artifacts found to clean up")
+	}
+	lines = append(lines, fmt.Sprintf("• Duration: %s", formatDuration(info.Duration)))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
 }
