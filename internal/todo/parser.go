@@ -8,21 +8,47 @@ import (
 )
 
 var (
-	pendingPattern   = regexp.MustCompile(`^-\s*\[\s*\]`)
-	completedPattern = regexp.MustCompile(`^-\s*\[[xX]\]`)
-	todoTextPattern  = regexp.MustCompile(`^-\s*\[[xX ]?\]\s*(.*)`)
+	pendingPattern    = regexp.MustCompile(`^-\s*\[\s*\]`)
+	completedPattern  = regexp.MustCompile(`^-\s*\[[xX]\]`)
+	inProgressPattern = regexp.MustCompile(`^-\s*\[[-~]\]`)
+	todoTextPattern   = regexp.MustCompile(`^-\s*\[[xX \-~]?\]\s*(.*)`)
 )
 
 // Counts holds todo item counts
 type Counts struct {
-	Pending   int
-	Completed int
+	Pending    int
+	InProgress int
+	Completed  int
 }
+
+// ItemStatus represents the status of a todo item
+type ItemStatus int
+
+const (
+	StatusPending ItemStatus = iota
+	StatusInProgress
+	StatusCompleted
+)
 
 // Item represents a single todo item with text
 type Item struct {
-	Text      string
-	Completed bool
+	Text   string
+	Status ItemStatus
+}
+
+// IsCompleted returns true if the item is completed
+func (i Item) IsCompleted() bool {
+	return i.Status == StatusCompleted
+}
+
+// IsInProgress returns true if the item is in progress
+func (i Item) IsInProgress() bool {
+	return i.Status == StatusInProgress
+}
+
+// IsPending returns true if the item is pending
+func (i Item) IsPending() bool {
+	return i.Status == StatusPending
 }
 
 // ParseFile parses a TODO.md file and returns counts
@@ -42,10 +68,12 @@ func ParseFile(path string) (*Counts, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if pendingPattern.MatchString(line) {
-			counts.Pending++
-		} else if completedPattern.MatchString(line) {
+		if completedPattern.MatchString(line) {
 			counts.Completed++
+		} else if inProgressPattern.MatchString(line) {
+			counts.InProgress++
+		} else if pendingPattern.MatchString(line) {
+			counts.Pending++
 		}
 	}
 
@@ -74,10 +102,17 @@ func ParseItems(path string) ([]Item, error) {
 		line := scanner.Text()
 		if matches := todoTextPattern.FindStringSubmatch(line); matches != nil {
 			text := strings.TrimSpace(matches[1])
-			completed := completedPattern.MatchString(line)
+			var status ItemStatus
+			if completedPattern.MatchString(line) {
+				status = StatusCompleted
+			} else if inProgressPattern.MatchString(line) {
+				status = StatusInProgress
+			} else {
+				status = StatusPending
+			}
 			items = append(items, Item{
-				Text:      text,
-				Completed: completed,
+				Text:   text,
+				Status: status,
 			})
 		}
 	}

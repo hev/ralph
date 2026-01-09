@@ -38,12 +38,31 @@ type Config struct {
 	// Behavior options
 	StopOnCompletion bool // Exit when all todos are complete
 
+	// Code review options
+	CodeReviewEnabled       bool   // Run code review phase after todos complete
+	CodeReviewMaxIterations int    // Max iterations for code review phase
+	CodeReviewPrompt        string // Prompt to use for code review phase
+
+	// Cleanup options
+	CleanupEnabled  bool     // Run cleanup phase after code review
+	CleanupPatterns []string // Glob patterns for files to clean up
+
 	// Worktree options
 	WorktreeEnabled      bool   // Run in a git worktree
 	WorktreeBranch       string // Branch name for worktree (empty = auto-generate)
 	WorktreeBaseDir      string // Where to create worktrees
 	WorktreeBranchPrefix string // Prefix for auto-generated branch names
 	WorktreeCleanup      bool   // Delete worktree on completion
+
+	// Model options
+	Model           string // Model to use for main phase (e.g., "sonnet", "opus", "haiku")
+	CodeReviewModel string // Model to use for code review phase (defaults to Model)
+	CleanupModel    string // Model to use for cleanup phase (defaults to Model)
+
+	// PR options
+	PREnabled bool   // Create a PR when the loop completes
+	PRTitle   string // Custom title for the PR (empty = auto-generate)
+	PRBase    string // Base branch for the PR (empty = default branch)
 
 	// Session info
 	SessionID string
@@ -61,6 +80,7 @@ type yamlConfig struct {
 	Cooldown      int    `yaml:"cooldown"`
 	Verbose       *bool  `yaml:"verbose"`
 	DryRun        *bool  `yaml:"dry_run"`
+	Model         string `yaml:"model"`
 
 	OTEL struct {
 		Enabled       *bool  `yaml:"enabled"`
@@ -79,12 +99,31 @@ type yamlConfig struct {
 
 	StopOnCompletion *bool `yaml:"stop_on_completion"`
 
+	CodeReview struct {
+		Enabled       *bool  `yaml:"enabled"`
+		MaxIterations int    `yaml:"max_iterations"`
+		Prompt        string `yaml:"prompt"`
+		Model         string `yaml:"model"`
+	} `yaml:"code_review"`
+
+	Cleanup struct {
+		Enabled  *bool    `yaml:"enabled"`
+		Patterns []string `yaml:"patterns"`
+		Model    string   `yaml:"model"`
+	} `yaml:"cleanup"`
+
 	Worktree struct {
 		Enabled      *bool  `yaml:"enabled"`
 		BaseDir      string `yaml:"base_dir"`
 		BranchPrefix string `yaml:"branch_prefix"`
 		Cleanup      *bool  `yaml:"cleanup"`
 	} `yaml:"worktree"`
+
+	PR struct {
+		Enabled *bool  `yaml:"enabled"`
+		Title   string `yaml:"title"`
+		Base    string `yaml:"base"`
+	} `yaml:"pr"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -112,11 +151,31 @@ func DefaultConfig() *Config {
 		SlackNotifyUsers: getEnvOrDefault("RALPH_SLACK_NOTIFY_USERS", ""),
 		SlackBotToken:    getEnvOrDefault("RALPH_SLACK_BOT_TOKEN", ""),
 
+		CodeReviewEnabled:       false,
+		CodeReviewMaxIterations: 3,
+		CodeReviewPrompt:        "",
+
+		CleanupEnabled: false,
+		CleanupPatterns: []string{
+			"**/*_test_*.go",
+			"**/*.test.js",
+			"**/*.test.ts",
+			"**/*.spec.js",
+			"**/*.spec.ts",
+			"**/test_*.py",
+			"**/*_test.py",
+			".agent/TODO.md",
+		},
+
 		WorktreeEnabled:      false,
 		WorktreeBranch:       "",
 		WorktreeBaseDir:      "/tmp/ralph-worktrees",
 		WorktreeBranchPrefix: "ralph/",
 		WorktreeCleanup:      true,
+
+		PREnabled: false,
+		PRTitle:   "",
+		PRBase:    "",
 
 		SessionID: uuid.New().String(),
 	}
@@ -149,6 +208,28 @@ func getEnvOrDefault(key, defaultVal string) string {
 // ScratchpadInstructions returns the instructions appended to prompts
 func (c *Config) ScratchpadInstructions() string {
 	return "\n\nUse the " + c.AgentDir + " directory as a scratchpad for your work. Keep track of your current status in " + c.AgentDir + "/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+}
+
+// CodeReviewInstructions returns the default code review prompt
+func (c *Config) CodeReviewInstructions() string {
+	if c.CodeReviewPrompt != "" {
+		return c.CodeReviewPrompt
+	}
+	return `Review the code changes made in this session. Look for:
+1. Bugs or logic errors
+2. Security vulnerabilities
+3. Performance issues
+4. Code style inconsistencies
+5. Missing error handling
+6. Incomplete implementations
+
+For each issue found:
+- Create a TODO item in ` + c.AgentDir + `/TODO.md describing the fix needed
+- Use checkboxes (- [ ] for pending, - [x] for done)
+
+If no issues are found, add a single TODO item: "- [x] Code review complete - no issues found"
+
+Make a commit and push your changes after every single file edit.`
 }
 
 // FindConfigFile searches for a config file in standard locations
@@ -231,6 +312,9 @@ func (c *Config) LoadFromFile(path string) error {
 	if yc.DryRun != nil {
 		c.DryRun = *yc.DryRun
 	}
+	if yc.Model != "" {
+		c.Model = yc.Model
+	}
 
 	// OTEL options
 	if yc.OTEL.Enabled != nil {
@@ -268,6 +352,31 @@ func (c *Config) LoadFromFile(path string) error {
 		c.StopOnCompletion = *yc.StopOnCompletion
 	}
 
+	// Code review options
+	if yc.CodeReview.Enabled != nil {
+		c.CodeReviewEnabled = *yc.CodeReview.Enabled
+	}
+	if yc.CodeReview.MaxIterations != 0 {
+		c.CodeReviewMaxIterations = yc.CodeReview.MaxIterations
+	}
+	if yc.CodeReview.Prompt != "" {
+		c.CodeReviewPrompt = yc.CodeReview.Prompt
+	}
+	if yc.CodeReview.Model != "" {
+		c.CodeReviewModel = yc.CodeReview.Model
+	}
+
+	// Cleanup options
+	if yc.Cleanup.Enabled != nil {
+		c.CleanupEnabled = *yc.Cleanup.Enabled
+	}
+	if len(yc.Cleanup.Patterns) > 0 {
+		c.CleanupPatterns = yc.Cleanup.Patterns
+	}
+	if yc.Cleanup.Model != "" {
+		c.CleanupModel = yc.Cleanup.Model
+	}
+
 	// Worktree options
 	if yc.Worktree.Enabled != nil {
 		c.WorktreeEnabled = *yc.Worktree.Enabled
@@ -280,6 +389,17 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.Worktree.Cleanup != nil {
 		c.WorktreeCleanup = *yc.Worktree.Cleanup
+	}
+
+	// PR options
+	if yc.PR.Enabled != nil {
+		c.PREnabled = *yc.PR.Enabled
+	}
+	if yc.PR.Title != "" {
+		c.PRTitle = yc.PR.Title
+	}
+	if yc.PR.Base != "" {
+		c.PRBase = yc.PR.Base
 	}
 
 	return nil

@@ -27,6 +27,15 @@ type TodoCompletedInfo struct {
 	IterationDuration time.Duration
 }
 
+// TodoStartedInfo contains information for todo started messages
+type TodoStartedInfo struct {
+	TodoText       string
+	CurrentIndex   int
+	TotalCount     int
+	Iteration      int
+	CompletedCount int
+}
+
 // SessionSummary contains information for the session end message
 type SessionSummary struct {
 	Iterations  int
@@ -36,6 +45,37 @@ type SessionSummary struct {
 	TodosTotal  int
 	ExitReason  string
 	NotifyUsers []string
+}
+
+// CodeReviewStartedInfo contains information for code review start messages
+type CodeReviewStartedInfo struct {
+	Iteration     int
+	MaxIterations int
+}
+
+// CodeReviewCompleteInfo contains information for code review complete messages
+type CodeReviewCompleteInfo struct {
+	Iterations  int
+	IssuesFound int
+	IssuesFixed int
+	Duration    time.Duration
+}
+
+// CleanupStartedInfo contains information for cleanup phase start messages
+type CleanupStartedInfo struct {
+	PatternCount int
+}
+
+// CleanupCompleteInfo contains information for cleanup phase complete messages
+type CleanupCompleteInfo struct {
+	FilesRemoved int
+	Duration     time.Duration
+}
+
+// PRCreatedInfo contains information for PR creation messages
+type PRCreatedInfo struct {
+	PRURL string
+	Title string
 }
 
 // FormatSessionStart creates the session start message
@@ -72,6 +112,20 @@ func FormatSessionStart(info SessionStartInfo) *WebhookMessage {
 	lines = append(lines, fmt.Sprintf("*Limits:* %s", strings.Join(limits, " / ")))
 
 	return &WebhookMessage{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatTodoStarted creates a todo started update message
+func FormatTodoStarted(info TodoStartedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, fmt.Sprintf("*Working on item %d of %d*", info.CurrentIndex, info.TotalCount))
+	lines = append(lines, fmt.Sprintf("_%s_", info.TodoText))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Iteration: %d | Completed: %d/%d",
+		info.Iteration, info.CompletedCount, info.TotalCount))
+
+	return &ChatPostMessageRequest{
 		Text: strings.Join(lines, "\n"),
 	}
 }
@@ -123,6 +177,33 @@ func FormatSessionEnd(summary SessionSummary) *ChatPostMessageRequest {
 	}
 }
 
+// FormatCodeReviewStarted creates a code review started message
+func FormatCodeReviewStarted(info CodeReviewStartedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Code review phase started*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Review iteration: %d of %d", info.Iteration, info.MaxIterations))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatCodeReviewComplete creates a code review complete message
+func FormatCodeReviewComplete(info CodeReviewCompleteInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Code review complete*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("• Iterations: %d", info.Iterations))
+	lines = append(lines, fmt.Sprintf("• Issues found: %d", info.IssuesFound))
+	lines = append(lines, fmt.Sprintf("• Issues fixed: %d", info.IssuesFixed))
+	lines = append(lines, fmt.Sprintf("• Duration: %s", formatDuration(info.Duration)))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
 // truncateSessionID shortens a UUID for display
 func truncateSessionID(id string) string {
 	if len(id) > 12 {
@@ -144,4 +225,46 @@ func formatDuration(d time.Duration) string {
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
 	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+// FormatCleanupStarted creates a cleanup started message
+func FormatCleanupStarted(info CleanupStartedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Cleanup phase started*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Scanning %d patterns for artifacts to remove", info.PatternCount))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatCleanupComplete creates a cleanup complete message
+func FormatCleanupComplete(info CleanupCompleteInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Cleanup complete*")
+	lines = append(lines, "")
+	if info.FilesRemoved > 0 {
+		lines = append(lines, fmt.Sprintf("• Files removed: %d", info.FilesRemoved))
+	} else {
+		lines = append(lines, "• No artifacts found to clean up")
+	}
+	lines = append(lines, fmt.Sprintf("• Duration: %s", formatDuration(info.Duration)))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatPRCreated creates a PR created message
+func FormatPRCreated(info PRCreatedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Pull request created*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("*Title:* %s", info.Title))
+	lines = append(lines, fmt.Sprintf("*URL:* <%s|View PR>", info.PRURL))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
 }

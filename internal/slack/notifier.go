@@ -116,6 +116,34 @@ func (n *Notifier) SessionStart(ctx context.Context) error {
 	return nil
 }
 
+// TodoStarted sends a notification when a todo item is started
+func (n *Notifier) TodoStarted(ctx context.Context, todoText string, currentIndex, total, iteration, completed int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatTodoStarted(TodoStartedInfo{
+		TodoText:       todoText,
+		CurrentIndex:   currentIndex,
+		TotalCount:     total,
+		Iteration:      iteration,
+		CompletedCount: completed,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
 // TodoCompleted sends a notification when todo items are completed
 func (n *Notifier) TodoCompleted(ctx context.Context, todoText string, completed, total, iteration, commits int, iterDuration time.Duration) error {
 	if !n.IsEnabled() {
@@ -134,6 +162,132 @@ func (n *Notifier) TodoCompleted(ctx context.Context, todoText string, completed
 		Iteration:         iteration,
 		Commits:           commits,
 		IterationDuration: iterDuration,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// CodeReviewStarted sends a notification when code review phase starts
+func (n *Notifier) CodeReviewStarted(ctx context.Context, iteration, maxIterations int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCodeReviewStarted(CodeReviewStartedInfo{
+		Iteration:     iteration,
+		MaxIterations: maxIterations,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// CodeReviewComplete sends a notification when code review phase completes
+func (n *Notifier) CodeReviewComplete(ctx context.Context, iterations, issuesFound, issuesFixed int, duration time.Duration) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCodeReviewComplete(CodeReviewCompleteInfo{
+		Iterations:  iterations,
+		IssuesFound: issuesFound,
+		IssuesFixed: issuesFixed,
+		Duration:    duration,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// CleanupStarted sends a notification when cleanup phase starts
+func (n *Notifier) CleanupStarted(ctx context.Context, patternCount int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCleanupStarted(CleanupStartedInfo{
+		PatternCount: patternCount,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// CleanupComplete sends a notification when cleanup phase completes
+func (n *Notifier) CleanupComplete(ctx context.Context, filesRemoved int, duration time.Duration) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCleanupComplete(CleanupCompleteInfo{
+		FilesRemoved: filesRemoved,
+		Duration:     duration,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// PRCreated sends a notification when a PR is created
+func (n *Notifier) PRCreated(ctx context.Context, prURL, title string) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatPRCreated(PRCreatedInfo{
+		PRURL: prURL,
+		Title: title,
 	})
 
 	msg.Channel = n.channel

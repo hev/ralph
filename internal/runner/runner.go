@@ -7,12 +7,15 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fatih/color"
 	"github.com/hev/ralph/internal/claude"
 	"github.com/hev/ralph/internal/config"
+	"github.com/hev/ralph/internal/git"
 	"github.com/hev/ralph/internal/metrics"
 	"github.com/hev/ralph/internal/slack"
 	"github.com/hev/ralph/internal/worktree"
@@ -132,6 +135,9 @@ func Run(cfg *config.Config) error {
 	}
 	logVerbose(cfg, "Agent dir: %s", cfg.AgentDir)
 	logVerbose(cfg, "Cooldown: %ds", cfg.Cooldown)
+	if cfg.Model != "" {
+		logVerbose(cfg, "Model: %s", cfg.Model)
+	}
 	if cfg.WorktreeEnabled && wtManager != nil {
 		logVerbose(cfg, "Worktree: %s", wtManager.GetWorktreePath())
 		logVerbose(cfg, "Branch: %s", wtManager.GetBranchName())
@@ -144,7 +150,11 @@ func Run(cfg *config.Config) error {
 	// Dry run mode
 	if cfg.DryRun {
 		log("Dry run mode - would execute:")
-		fmt.Println("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
+		if cfg.Model != "" {
+			fmt.Printf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"\n", cfg.Model)
+		} else {
+			fmt.Println("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
+		}
 		fmt.Println()
 		fmt.Println("Full prompt:")
 		fmt.Println("---")
@@ -217,7 +227,7 @@ func Run(cfg *config.Config) error {
 		select {
 		case <-ctx.Done():
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
-			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
 			cleanupWorktree(cfg, wtManager)
 			return nil
 		default:
@@ -248,7 +258,7 @@ func Run(cfg *config.Config) error {
 		iterationStart := time.Now()
 
 		// Run claude with streaming output
-		exitCode, err := runClaude(ctx, fullPrompt)
+		exitCode, err := runClaude(ctx, fullPrompt, cfg.Model)
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
 
@@ -269,6 +279,17 @@ func Run(cfg *config.Config) error {
 		if tracker != nil {
 			tracker.AfterIteration(ctx, iterationDuration, hadError, "complete")
 			totalCommits = tracker.GetCommitsDelta()
+
+			// Check for newly started todos and send Slack notifications
+			if notifier.IsEnabled() {
+				newlyStarted := tracker.GetNewlyInProgressTodos()
+				counts, _ := tracker.GetTodoCounts()
+				for _, itemWithIdx := range newlyStarted {
+					if err := notifier.TodoStarted(ctx, itemWithIdx.Item.Text, itemWithIdx.Index, counts.Total(), iteration, counts.Completed); err != nil {
+						logError("Failed to send Slack todo started notification: %v", err)
+					}
+				}
+			}
 
 			// Check for newly completed todos and send Slack notifications
 			if notifier.IsEnabled() {
@@ -302,17 +323,366 @@ func Run(cfg *config.Config) error {
 		select {
 		case <-ctx.Done():
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
-			printSummary(startTime, iteration, exitReason, totalCommits, tracker)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
 			cleanupWorktree(cfg, wtManager)
 			return nil
 		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
 		}
 	}
 
+	// Run code review phase if enabled and todos completed
+	if cfg.CodeReviewEnabled && exitReason == "all todos complete" {
+		reviewExitReason, reviewIters := runCodeReviewPhase(ctx, cfg, notifier, tracker)
+		exitReason = reviewExitReason
+		iteration += reviewIters
+	}
+
+	// Run cleanup phase if enabled
+	if cfg.CleanupEnabled {
+		cleanupExitReason := runCleanupPhase(ctx, cfg, notifier)
+		if cleanupExitReason != "" {
+			exitReason = cleanupExitReason
+		}
+	}
+
+	// Run PR creation phase if enabled
+	var prURL string
+	if cfg.PREnabled {
+		var prErr error
+		prURL, prErr = runPRPhase(ctx, cfg, notifier, tracker)
+		if prErr != nil {
+			logError("PR creation failed: %v", prErr)
+		}
+	}
+
 	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
-	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker)
+	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker, prURL)
 	cleanupWorktree(cfg, wtManager)
 	return nil
+}
+
+// runCodeReviewPhase runs the code review loop after todos are complete
+// Returns the exit reason and number of iterations
+func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker) (string, int) {
+	log("=== Starting Code Review Phase ===")
+
+	// Get the code review prompt
+	reviewPrompt := cfg.CodeReviewInstructions()
+
+	// Clear the TODO file to prepare for review issues
+	todoPath := filepath.Join(cfg.AgentDir, "TODO.md")
+	if err := os.WriteFile(todoPath, []byte("# Code Review\n\n## Issues Found\n\n"), 0644); err != nil {
+		logError("Failed to clear TODO file for code review: %v", err)
+		return "code review setup failed", 0
+	}
+
+	// Reset todo tracking for review phase
+	if tracker != nil {
+		tracker.UpdatePreviousTodos()
+	}
+
+	reviewStartTime := time.Now()
+	reviewIteration := 0
+	issuesFound := 0
+	issuesFixed := 0
+
+	for reviewIteration < cfg.CodeReviewMaxIterations {
+		select {
+		case <-ctx.Done():
+			return "interrupted during code review", reviewIteration
+		default:
+		}
+
+		reviewIteration++
+		log("=== Code Review Iteration %d of %d ===", reviewIteration, cfg.CodeReviewMaxIterations)
+
+		// Send Slack notification for review iteration
+		if notifier.IsEnabled() {
+			if err := notifier.CodeReviewStarted(ctx, reviewIteration, cfg.CodeReviewMaxIterations); err != nil {
+				logError("Failed to send code review started notification: %v", err)
+			}
+		}
+
+		// Track iteration timing
+		if tracker != nil {
+			tracker.BeforeIteration()
+		}
+		iterationStart := time.Now()
+
+		// Run claude with review prompt
+		// Use code review model if specified, otherwise fall back to main model
+		model := cfg.CodeReviewModel
+		if model == "" {
+			model = cfg.Model
+		}
+		exitCode, err := runClaude(ctx, reviewPrompt, model)
+		iterationDuration := time.Since(iterationStart)
+		hadError := err != nil
+
+		if hadError {
+			if ctx.Err() != nil {
+				return "interrupted during code review", reviewIteration
+			}
+			logError("Claude exited with error (code %d) during code review", exitCode)
+			if tracker != nil {
+				tracker.RecordError(ctx, "code_review_error")
+			}
+		} else {
+			logSuccess("Code review iteration %d complete", reviewIteration)
+		}
+
+		// Record iteration metrics
+		if tracker != nil {
+			tracker.AfterIteration(ctx, iterationDuration, hadError, "code_review")
+
+			// Get current todo counts
+			counts, err := tracker.GetTodoCounts()
+			if err == nil {
+				// Track issues found (total todos created during review)
+				if reviewIteration == 1 {
+					issuesFound = counts.Total()
+				}
+				issuesFixed = counts.Completed
+
+				// Check if all review issues are resolved
+				if counts.Pending == 0 && counts.Completed > 0 {
+					log("All code review issues resolved")
+					if notifier.IsEnabled() {
+						reviewDuration := time.Since(reviewStartTime)
+						if err := notifier.CodeReviewComplete(ctx, reviewIteration, issuesFound, issuesFixed, reviewDuration); err != nil {
+							logError("Failed to send code review complete notification: %v", err)
+						}
+					}
+					return "code review complete", reviewIteration
+				}
+
+				// Check if review found no issues (indicated by a single completed item)
+				if counts.Pending == 0 && counts.Total() == 0 {
+					log("Code review found no issues")
+					if notifier.IsEnabled() {
+						reviewDuration := time.Since(reviewStartTime)
+						if err := notifier.CodeReviewComplete(ctx, reviewIteration, 0, 0, reviewDuration); err != nil {
+							logError("Failed to send code review complete notification: %v", err)
+						}
+					}
+					return "code review complete - no issues", reviewIteration
+				}
+			}
+
+			// Update previous todos for next iteration
+			tracker.UpdatePreviousTodos()
+		}
+
+		// Sleep between iterations
+		if reviewIteration < cfg.CodeReviewMaxIterations {
+			logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
+			select {
+			case <-ctx.Done():
+				return "interrupted during code review", reviewIteration
+			case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
+			}
+		}
+	}
+
+	log("Code review max iterations reached")
+	if notifier.IsEnabled() {
+		reviewDuration := time.Since(reviewStartTime)
+		if err := notifier.CodeReviewComplete(ctx, reviewIteration, issuesFound, issuesFixed, reviewDuration); err != nil {
+			logError("Failed to send code review complete notification: %v", err)
+		}
+	}
+
+	return "code review max iterations reached", reviewIteration
+}
+
+// runCleanupPhase removes artifacts based on configured patterns
+// Returns an exit reason if cleanup changes the session outcome
+func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier) string {
+	log("=== Starting Cleanup Phase ===")
+
+	cleanupStartTime := time.Now()
+
+	// Send Slack notification
+	if notifier.IsEnabled() {
+		if err := notifier.CleanupStarted(ctx, len(cfg.CleanupPatterns)); err != nil {
+			logError("Failed to send cleanup started notification: %v", err)
+		}
+	}
+
+	// Find and remove files matching patterns
+	filesRemoved := 0
+	for _, pattern := range cfg.CleanupPatterns {
+		select {
+		case <-ctx.Done():
+			return "interrupted during cleanup"
+		default:
+		}
+
+		logVerbose(cfg, "Scanning pattern: %s", pattern)
+
+		// Use doublestar for glob matching
+		matches, err := doublestar.FilepathGlob(pattern)
+		if err != nil {
+			logError("Failed to glob pattern %s: %v", pattern, err)
+			continue
+		}
+
+		for _, match := range matches {
+			// Skip directories
+			info, err := os.Stat(match)
+			if err != nil {
+				continue
+			}
+			if info.IsDir() {
+				continue
+			}
+
+			log("Removing: %s", match)
+			if err := os.Remove(match); err != nil {
+				logError("Failed to remove %s: %v", match, err)
+			} else {
+				filesRemoved++
+			}
+		}
+	}
+
+	cleanupDuration := time.Since(cleanupStartTime)
+
+	// Send completion notification
+	if notifier.IsEnabled() {
+		if err := notifier.CleanupComplete(ctx, filesRemoved, cleanupDuration); err != nil {
+			logError("Failed to send cleanup complete notification: %v", err)
+		}
+	}
+
+	if filesRemoved > 0 {
+		logSuccess("Cleanup complete: removed %d file(s)", filesRemoved)
+	} else {
+		logSuccess("Cleanup complete: no artifacts found")
+	}
+
+	return ""
+}
+
+// runPRPhase creates a pull request for the changes made
+// Returns the PR URL if successful, or an error
+func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker) (string, error) {
+	log("=== Starting PR Creation Phase ===")
+
+	// Check if we're on a branch other than default
+	currentBranch, err := git.GetCurrentBranch()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	defaultBranch, err := git.GetDefaultBranch()
+	if err != nil {
+		defaultBranch = "main"
+	}
+
+	if currentBranch == defaultBranch {
+		logError("Cannot create PR: currently on default branch (%s)", defaultBranch)
+		return "", fmt.Errorf("cannot create PR from default branch")
+	}
+
+	// Push the branch if not already pushed
+	if !git.IsBranchPushed() {
+		log("Pushing branch %s to remote...", currentBranch)
+		if err := git.PushBranch(); err != nil {
+			return "", fmt.Errorf("failed to push branch: %w", err)
+		}
+	}
+
+	// Generate PR body
+	baseBranch := cfg.PRBase
+	if baseBranch == "" {
+		baseBranch = defaultBranch
+	}
+
+	body := generatePRBody(cfg, tracker, baseBranch)
+
+	// Generate title if not provided
+	title := cfg.PRTitle
+	if title == "" {
+		title = generatePRTitle(currentBranch)
+	}
+
+	// Create the PR
+	log("Creating pull request...")
+	prConfig := git.PRConfig{
+		Title: title,
+		Base:  baseBranch,
+		Body:  body,
+	}
+
+	result, err := git.CreatePR(prConfig)
+	if err != nil {
+		return "", err
+	}
+
+	logSuccess("PR created: %s", result.URL)
+
+	// Send Slack notification
+	if notifier.IsEnabled() {
+		if err := notifier.PRCreated(ctx, result.URL, title); err != nil {
+			logError("Failed to send Slack PR notification: %v", err)
+		}
+	}
+
+	return result.URL, nil
+}
+
+// generatePRTitle generates a PR title from the branch name
+func generatePRTitle(branchName string) string {
+	// Remove common prefixes
+	title := branchName
+	for _, prefix := range []string{"ralph/", "feature/", "fix/", "bugfix/", "hotfix/"} {
+		title = strings.TrimPrefix(title, prefix)
+	}
+
+	// Convert dashes/underscores to spaces and capitalize
+	title = strings.ReplaceAll(title, "-", " ")
+	title = strings.ReplaceAll(title, "_", " ")
+
+	// Capitalize first letter
+	if len(title) > 0 {
+		title = strings.ToUpper(string(title[0])) + title[1:]
+	}
+
+	return title
+}
+
+// generatePRBody generates a PR body with summary of changes
+func generatePRBody(cfg *config.Config, tracker *metrics.Tracker, baseBranch string) string {
+	var body strings.Builder
+
+	body.WriteString("## Summary\n\n")
+	body.WriteString("Changes made by Ralph automated loop.\n\n")
+
+	// Add todo summary if available
+	if tracker != nil {
+		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
+			body.WriteString(fmt.Sprintf("- Completed %d/%d tasks (%.0f%%)\n", counts.Completed, counts.Total(), counts.CompletionRate()))
+		}
+	}
+
+	// Add commit summary
+	commits, err := git.GetCommitsSinceBase(baseBranch)
+	if err == nil && len(commits) > 0 {
+		body.WriteString(fmt.Sprintf("- Made %d commits\n", len(commits)))
+
+		if len(commits) <= 10 {
+			body.WriteString("\n### Commits\n\n")
+			for _, commit := range commits {
+				body.WriteString(fmt.Sprintf("- %s\n", commit))
+			}
+		}
+	}
+
+	body.WriteString("\n---\n\n")
+	body.WriteString("*Generated by [Ralph](https://github.com/hev/ralph)*\n")
+
+	return body.String()
 }
 
 func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
@@ -340,8 +710,8 @@ func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime tim
 	}
 }
 
-func runClaude(ctx context.Context, prompt string) (int, error) {
-	client, err := claude.NewClient(ctx, prompt)
+func runClaude(ctx context.Context, prompt string, model string) (int, error) {
+	client, err := claude.NewClient(ctx, prompt, model)
 	if err != nil {
 		return -1, err
 	}
@@ -359,7 +729,7 @@ func runClaude(ctx context.Context, prompt string) (int, error) {
 	return client.Wait()
 }
 
-func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
+func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, prURL string) {
 	elapsed := time.Since(startTime)
 	fmt.Println()
 	logSuccess("=== Ralph Summary ===")
@@ -373,6 +743,11 @@ func printSummary(startTime time.Time, iterations int, exitReason string, commit
 		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
 			logSuccess("Todos: %d/%d complete (%.0f%%)", counts.Completed, counts.Total(), counts.CompletionRate())
 		}
+	}
+
+	// Show PR URL if created
+	if prURL != "" {
+		logSuccess("PR created: %s", prURL)
 	}
 }
 

@@ -1,6 +1,0 @@
-# Ralph configuration - project-specific settings
-# Global settings (like bot_token) should go in ~/.config/ralph/ralph.yaml
-slack:
-  enabled: true
-  channel: "C0A6L0UFU6R"
-  notify_users: "U0A51HKR542,U0A4L3ENZ39"
