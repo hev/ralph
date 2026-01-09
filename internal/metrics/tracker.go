@@ -152,8 +152,14 @@ func (t *Tracker) GetNewlyCompletedTodos() []todo.Item {
 	return newlyCompleted
 }
 
-// GetNewlyInProgressTodos compares current todos with previous state and returns newly in-progress items
-func (t *Tracker) GetNewlyInProgressTodos() []todo.Item {
+// TodoWithIndex holds a todo item with its 1-based index in the list
+type TodoWithIndex struct {
+	Item  todo.Item
+	Index int
+}
+
+// GetNewlyInProgressTodos compares current todos with previous state and returns newly in-progress items with their indices
+func (t *Tracker) GetNewlyInProgressTodos() []TodoWithIndex {
 	currentItems := t.GetTodoItems()
 	if len(t.previousTodos) == 0 {
 		return nil
@@ -168,10 +174,13 @@ func (t *Tracker) GetNewlyInProgressTodos() []todo.Item {
 	}
 
 	// Find items that are now in-progress but weren't before
-	var newlyInProgress []todo.Item
-	for _, item := range currentItems {
+	var newlyInProgress []TodoWithIndex
+	for i, item := range currentItems {
 		if item.IsInProgress() && !previouslyInProgress[item.Text] {
-			newlyInProgress = append(newlyInProgress, item)
+			newlyInProgress = append(newlyInProgress, TodoWithIndex{
+				Item:  item,
+				Index: i + 1, // 1-based index
+			})
 		}
 	}
 
