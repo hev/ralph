@@ -59,6 +59,11 @@ type Config struct {
 	CodeReviewModel string // Model to use for code review phase (defaults to Model)
 	CleanupModel    string // Model to use for cleanup phase (defaults to Model)
 
+	// PR options
+	PREnabled bool   // Create a PR when the loop completes
+	PRTitle   string // Custom title for the PR (empty = auto-generate)
+	PRBase    string // Base branch for the PR (empty = default branch)
+
 	// Session info
 	SessionID string
 
@@ -113,6 +118,12 @@ type yamlConfig struct {
 		BranchPrefix string `yaml:"branch_prefix"`
 		Cleanup      *bool  `yaml:"cleanup"`
 	} `yaml:"worktree"`
+
+	PR struct {
+		Enabled *bool  `yaml:"enabled"`
+		Title   string `yaml:"title"`
+		Base    string `yaml:"base"`
+	} `yaml:"pr"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -161,6 +172,10 @@ func DefaultConfig() *Config {
 		WorktreeBaseDir:      "/tmp/ralph-worktrees",
 		WorktreeBranchPrefix: "ralph/",
 		WorktreeCleanup:      true,
+
+		PREnabled: false,
+		PRTitle:   "",
+		PRBase:    "",
 
 		SessionID: uuid.New().String(),
 	}
@@ -374,6 +389,17 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.Worktree.Cleanup != nil {
 		c.WorktreeCleanup = *yc.Worktree.Cleanup
+	}
+
+	// PR options
+	if yc.PR.Enabled != nil {
+		c.PREnabled = *yc.PR.Enabled
+	}
+	if yc.PR.Title != "" {
+		c.PRTitle = yc.PR.Title
+	}
+	if yc.PR.Base != "" {
+		c.PRBase = yc.PR.Base
 	}
 
 	return nil
