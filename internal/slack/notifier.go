@@ -116,6 +116,34 @@ func (n *Notifier) SessionStart(ctx context.Context) error {
 	return nil
 }
 
+// TodoStarted sends a notification when a todo item is started
+func (n *Notifier) TodoStarted(ctx context.Context, todoText string, currentIndex, total, iteration, completed int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatTodoStarted(TodoStartedInfo{
+		TodoText:       todoText,
+		CurrentIndex:   currentIndex,
+		TotalCount:     total,
+		Iteration:      iteration,
+		CompletedCount: completed,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
 // TodoCompleted sends a notification when todo items are completed
 func (n *Notifier) TodoCompleted(ctx context.Context, todoText string, completed, total, iteration, commits int, iterDuration time.Duration) error {
 	if !n.IsEnabled() {

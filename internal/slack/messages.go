@@ -27,6 +27,15 @@ type TodoCompletedInfo struct {
 	IterationDuration time.Duration
 }
 
+// TodoStartedInfo contains information for todo started messages
+type TodoStartedInfo struct {
+	TodoText       string
+	CurrentIndex   int
+	TotalCount     int
+	Iteration      int
+	CompletedCount int
+}
+
 // SessionSummary contains information for the session end message
 type SessionSummary struct {
 	Iterations  int
@@ -72,6 +81,20 @@ func FormatSessionStart(info SessionStartInfo) *WebhookMessage {
 	lines = append(lines, fmt.Sprintf("*Limits:* %s", strings.Join(limits, " / ")))
 
 	return &WebhookMessage{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatTodoStarted creates a todo started update message
+func FormatTodoStarted(info TodoStartedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, fmt.Sprintf("*Working on item %d of %d*", info.CurrentIndex, info.TotalCount))
+	lines = append(lines, fmt.Sprintf("_%s_", info.TodoText))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Iteration: %d | Completed: %d/%d",
+		info.Iteration, info.CompletedCount, info.TotalCount))
+
+	return &ChatPostMessageRequest{
 		Text: strings.Join(lines, "\n"),
 	}
 }
