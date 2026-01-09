@@ -20,7 +20,7 @@
 - [x] Test 7: `internal/worktree` - Manager tests - 82.0% coverage
 - [x] Test 8: `internal/slack/client` - HTTP mocking tests - 92.0% coverage
 - [x] Test 9: `internal/metrics` - Tracker tests - 54.4% coverage
-- [ ] Test 10: `internal/claude/client` - Process mocking tests
+- [x] Test 10: `internal/claude/client` - Process mocking tests - 92.8% coverage
 - [ ] Test 11: `cmd/ralph` - Runner integration tests
 
 ## Improvement 6 Findings (UX Review)
