@@ -54,6 +54,11 @@ type Config struct {
 	WorktreeBranchPrefix string // Prefix for auto-generated branch names
 	WorktreeCleanup      bool   // Delete worktree on completion
 
+	// Model options
+	Model           string // Model to use for main phase (e.g., "sonnet", "opus", "haiku")
+	CodeReviewModel string // Model to use for code review phase (defaults to Model)
+	CleanupModel    string // Model to use for cleanup phase (defaults to Model)
+
 	// Session info
 	SessionID string
 
@@ -70,6 +75,7 @@ type yamlConfig struct {
 	Cooldown      int    `yaml:"cooldown"`
 	Verbose       *bool  `yaml:"verbose"`
 	DryRun        *bool  `yaml:"dry_run"`
+	Model         string `yaml:"model"`
 
 	OTEL struct {
 		Enabled       *bool  `yaml:"enabled"`
@@ -92,11 +98,13 @@ type yamlConfig struct {
 		Enabled       *bool  `yaml:"enabled"`
 		MaxIterations int    `yaml:"max_iterations"`
 		Prompt        string `yaml:"prompt"`
+		Model         string `yaml:"model"`
 	} `yaml:"code_review"`
 
 	Cleanup struct {
 		Enabled  *bool    `yaml:"enabled"`
 		Patterns []string `yaml:"patterns"`
+		Model    string   `yaml:"model"`
 	} `yaml:"cleanup"`
 
 	Worktree struct {
@@ -289,6 +297,9 @@ func (c *Config) LoadFromFile(path string) error {
 	if yc.DryRun != nil {
 		c.DryRun = *yc.DryRun
 	}
+	if yc.Model != "" {
+		c.Model = yc.Model
+	}
 
 	// OTEL options
 	if yc.OTEL.Enabled != nil {
@@ -336,6 +347,9 @@ func (c *Config) LoadFromFile(path string) error {
 	if yc.CodeReview.Prompt != "" {
 		c.CodeReviewPrompt = yc.CodeReview.Prompt
 	}
+	if yc.CodeReview.Model != "" {
+		c.CodeReviewModel = yc.CodeReview.Model
+	}
 
 	// Cleanup options
 	if yc.Cleanup.Enabled != nil {
@@ -343,6 +357,9 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if len(yc.Cleanup.Patterns) > 0 {
 		c.CleanupPatterns = yc.Cleanup.Patterns
+	}
+	if yc.Cleanup.Model != "" {
+		c.CleanupModel = yc.Cleanup.Model
 	}
 
 	// Worktree options
