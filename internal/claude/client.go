@@ -15,14 +15,22 @@ type Client struct {
 }
 
 // NewClient creates a new Claude client
-func NewClient(ctx context.Context, prompt string) (*Client, error) {
-	cmd := exec.CommandContext(ctx, "claude",
+// model is optional - if empty, uses the default model
+func NewClient(ctx context.Context, prompt string, model string) (*Client, error) {
+	args := []string{
 		"--dangerously-skip-permissions",
 		"--print",
 		"--verbose",
 		"--output-format", "stream-json",
-		"-p", prompt,
-	)
+	}
+
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+
+	args = append(args, "-p", prompt)
+
+	cmd := exec.CommandContext(ctx, "claude", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
