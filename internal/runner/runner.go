@@ -270,6 +270,17 @@ func Run(cfg *config.Config) error {
 			tracker.AfterIteration(ctx, iterationDuration, hadError, "complete")
 			totalCommits = tracker.GetCommitsDelta()
 
+			// Check for newly started todos and send Slack notifications
+			if notifier.IsEnabled() {
+				newlyStarted := tracker.GetNewlyInProgressTodos()
+				counts, _ := tracker.GetTodoCounts()
+				for _, itemWithIdx := range newlyStarted {
+					if err := notifier.TodoStarted(ctx, itemWithIdx.Item.Text, itemWithIdx.Index, counts.Total(), iteration, counts.Completed); err != nil {
+						logError("Failed to send Slack todo started notification: %v", err)
+					}
+				}
+			}
+
 			// Check for newly completed todos and send Slack notifications
 			if notifier.IsEnabled() {
 				newlyCompleted := tracker.GetNewlyCompletedTodos()
