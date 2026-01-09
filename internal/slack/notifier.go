@@ -173,6 +173,58 @@ func (n *Notifier) TodoCompleted(ctx context.Context, todoText string, completed
 	})
 }
 
+// CodeReviewStarted sends a notification when code review phase starts
+func (n *Notifier) CodeReviewStarted(ctx context.Context, iteration, maxIterations int) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCodeReviewStarted(CodeReviewStartedInfo{
+		Iteration:     iteration,
+		MaxIterations: maxIterations,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
+// CodeReviewComplete sends a notification when code review phase completes
+func (n *Notifier) CodeReviewComplete(ctx context.Context, iterations, issuesFound, issuesFixed int, duration time.Duration) error {
+	if !n.IsEnabled() {
+		return nil
+	}
+
+	// Thread replies require bot token
+	if n.client.botToken == "" || n.threadTS == "" {
+		return nil
+	}
+
+	msg := FormatCodeReviewComplete(CodeReviewCompleteInfo{
+		Iterations:  iterations,
+		IssuesFound: issuesFound,
+		IssuesFixed: issuesFixed,
+		Duration:    duration,
+	})
+
+	msg.Channel = n.channel
+	msg.ThreadTS = n.threadTS
+
+	return n.client.PostWithRetry(ctx, func() error {
+		_, err := n.client.PostMessage(ctx, msg)
+		return err
+	})
+}
+
 // SessionEnd sends the final session summary
 func (n *Notifier) SessionEnd(ctx context.Context, summary SessionSummary) error {
 	if !n.IsEnabled() {

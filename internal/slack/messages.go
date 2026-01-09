@@ -47,6 +47,20 @@ type SessionSummary struct {
 	NotifyUsers []string
 }
 
+// CodeReviewStartedInfo contains information for code review start messages
+type CodeReviewStartedInfo struct {
+	Iteration     int
+	MaxIterations int
+}
+
+// CodeReviewCompleteInfo contains information for code review complete messages
+type CodeReviewCompleteInfo struct {
+	Iterations    int
+	IssuesFound   int
+	IssuesFixed   int
+	Duration      time.Duration
+}
+
 // FormatSessionStart creates the session start message
 func FormatSessionStart(info SessionStartInfo) *WebhookMessage {
 	var lines []string
@@ -140,6 +154,33 @@ func FormatSessionEnd(summary SessionSummary) *ChatPostMessageRequest {
 		lines = append(lines, "")
 		lines = append(lines, "cc: "+strings.Join(mentions, " "))
 	}
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatCodeReviewStarted creates a code review started message
+func FormatCodeReviewStarted(info CodeReviewStartedInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Code review phase started*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Review iteration: %d of %d", info.Iteration, info.MaxIterations))
+
+	return &ChatPostMessageRequest{
+		Text: strings.Join(lines, "\n"),
+	}
+}
+
+// FormatCodeReviewComplete creates a code review complete message
+func FormatCodeReviewComplete(info CodeReviewCompleteInfo) *ChatPostMessageRequest {
+	var lines []string
+	lines = append(lines, "*Code review complete*")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("• Iterations: %d", info.Iterations))
+	lines = append(lines, fmt.Sprintf("• Issues found: %d", info.IssuesFound))
+	lines = append(lines, fmt.Sprintf("• Issues fixed: %d", info.IssuesFixed))
+	lines = append(lines, fmt.Sprintf("• Duration: %s", formatDuration(info.Duration)))
 
 	return &ChatPostMessageRequest{
 		Text: strings.Join(lines, "\n"),
