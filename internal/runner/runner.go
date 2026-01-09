@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fatih/color"
 	"github.com/hev/ralph/internal/claude"
 	"github.com/hev/ralph/internal/config"
@@ -327,6 +328,14 @@ func Run(cfg *config.Config) error {
 		iteration += reviewIters
 	}
 
+	// Run cleanup phase if enabled
+	if cfg.CleanupEnabled {
+		cleanupExitReason := runCleanupPhase(ctx, cfg, notifier)
+		if cleanupExitReason != "" {
+			exitReason = cleanupExitReason
+		}
+	}
+
 	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
 	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker)
 	cleanupWorktree(cfg, wtManager)
@@ -460,6 +469,75 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 	}
 
 	return "code review max iterations reached", reviewIteration
+}
+
+// runCleanupPhase removes artifacts based on configured patterns
+// Returns an exit reason if cleanup changes the session outcome
+func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier) string {
+	log("=== Starting Cleanup Phase ===")
+
+	cleanupStartTime := time.Now()
+
+	// Send Slack notification
+	if notifier.IsEnabled() {
+		if err := notifier.CleanupStarted(ctx, len(cfg.CleanupPatterns)); err != nil {
+			logError("Failed to send cleanup started notification: %v", err)
+		}
+	}
+
+	// Find and remove files matching patterns
+	filesRemoved := 0
+	for _, pattern := range cfg.CleanupPatterns {
+		select {
+		case <-ctx.Done():
+			return "interrupted during cleanup"
+		default:
+		}
+
+		logVerbose(cfg, "Scanning pattern: %s", pattern)
+
+		// Use doublestar for glob matching
+		matches, err := doublestar.FilepathGlob(pattern)
+		if err != nil {
+			logError("Failed to glob pattern %s: %v", pattern, err)
+			continue
+		}
+
+		for _, match := range matches {
+			// Skip directories
+			info, err := os.Stat(match)
+			if err != nil {
+				continue
+			}
+			if info.IsDir() {
+				continue
+			}
+
+			log("Removing: %s", match)
+			if err := os.Remove(match); err != nil {
+				logError("Failed to remove %s: %v", match, err)
+			} else {
+				filesRemoved++
+			}
+		}
+	}
+
+	cleanupDuration := time.Since(cleanupStartTime)
+
+	// Send completion notification
+	if notifier.IsEnabled() {
+		if err := notifier.CleanupComplete(ctx, filesRemoved, cleanupDuration); err != nil {
+			logError("Failed to send cleanup complete notification: %v", err)
+		}
+	}
+
+	if filesRemoved > 0 {
+		logSuccess("Cleanup complete: removed %d file(s)", filesRemoved)
+	} else {
+		logSuccess("Cleanup complete: no artifacts found")
+	}
+
+	return ""
 }
 
 func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
