@@ -42,6 +42,11 @@ OTEL Options:
   --otel-endpoint URL         OTLP endpoint (default: localhost:4317)
   --metrics-prefix PREFIX     Metric name prefix (default: ralph)
   --project-name NAME         Override project label (default: cwd basename)
+
+Worktree Options:
+  -w, --worktree              Run in a git worktree (default: false)
+  -b, --branch NAME           Branch name for worktree (default: auto-generate)
+  -k, --keep-worktree         Keep worktree after completion (default: false)
 ```
 
 ### Examples
@@ -67,6 +72,15 @@ ralph --otel-enabled --otel-endpoint localhost:4317
 
 # Use custom config file
 ralph --config ~/myconfig.yaml
+
+# Run in a worktree (auto-generated branch)
+ralph -w
+
+# Run in worktree with specific branch
+ralph -w -b feature/my-task
+
+# Run in worktree, keep after completion
+ralph -w -k
 ```
 
 ## Configuration File
@@ -279,6 +293,67 @@ export RALPH_SLACK_NOTIFY_USERS="U0123456789"
 ralph --slack-enabled
 ```
 
+## Worktree Mode
+
+Ralph can optionally run in a git worktree for better isolation. This is opt-in; the default "insane" mode runs in the current directory.
+
+### Why Worktrees?
+
+- **Isolation**: Each Ralph session works in its own directory
+- **Parallel sessions**: Multiple Ralphs can work on different branches simultaneously
+- **Clean state**: Fresh worktree avoids contamination from previous work
+- **Easy cleanup**: Just delete the worktree when done
+
+### Usage
+
+```bash
+# Default: run in current directory (insane mode)
+ralph
+
+# Run in a worktree (auto-generated branch name)
+ralph --worktree
+ralph -w
+
+# Specify branch name
+ralph --worktree --branch feature/my-task
+ralph -w -b feature/my-task
+
+# Keep worktree after completion (skip cleanup)
+ralph --worktree --keep-worktree
+ralph -w -k
+```
+
+### How It Works
+
+When worktree mode is enabled:
+
+1. Creates a new git worktree at `/tmp/ralph-worktrees/<branch-name>`
+2. Creates a new branch (or uses existing if specified)
+3. Copies the prompt file to the worktree
+4. Changes to the worktree directory
+5. Runs Claude in the worktree context
+6. On completion: pushes the branch to remote
+7. Removes the worktree (unless `--keep-worktree`)
+
+### Configuration
+
+```yaml
+# ralph.yaml
+worktree:
+  enabled: false          # Default: insane mode (no worktree)
+  base_dir: /tmp/ralph-worktrees  # Where to create worktrees
+  branch_prefix: ralph/   # Prefix for auto-generated branch names
+  cleanup: true           # Delete worktree on completion
+```
+
+### CLI Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--worktree` | `-w` | Enable worktree mode |
+| `--branch NAME` | `-b` | Branch name for worktree (default: auto-generate) |
+| `--keep-worktree` | `-k` | Keep worktree after completion |
+
 ## Project Structure
 
 ```
@@ -298,7 +373,8 @@ ralph/
 │   │   ├── messages.go       # Message formatting
 │   │   └── notifier.go       # High-level notification logic
 │   ├── todo/parser.go        # TODO.md parsing
-│   └── git/tracker.go        # Git commit counting
+│   ├── git/tracker.go        # Git commit counting
+│   └── worktree/worktree.go  # Git worktree management
 ├── grafana/
 │   └── ralph-dashboard.json  # Grafana dashboard
 ├── docker-compose.yml        # Observability stack
