@@ -43,6 +43,10 @@ type Config struct {
 	CodeReviewMaxIterations int    // Max iterations for code review phase
 	CodeReviewPrompt        string // Prompt to use for code review phase
 
+	// Cleanup options
+	CleanupEnabled  bool     // Run cleanup phase after code review
+	CleanupPatterns []string // Glob patterns for files to clean up
+
 	// Worktree options
 	WorktreeEnabled      bool   // Run in a git worktree
 	WorktreeBranch       string // Branch name for worktree (empty = auto-generate)
@@ -90,6 +94,11 @@ type yamlConfig struct {
 		Prompt        string `yaml:"prompt"`
 	} `yaml:"code_review"`
 
+	Cleanup struct {
+		Enabled  *bool    `yaml:"enabled"`
+		Patterns []string `yaml:"patterns"`
+	} `yaml:"cleanup"`
+
 	Worktree struct {
 		Enabled      *bool  `yaml:"enabled"`
 		BaseDir      string `yaml:"base_dir"`
@@ -126,6 +135,18 @@ func DefaultConfig() *Config {
 		CodeReviewEnabled:       false,
 		CodeReviewMaxIterations: 3,
 		CodeReviewPrompt:        "",
+
+		CleanupEnabled: false,
+		CleanupPatterns: []string{
+			"**/*_test_*.go",
+			"**/*.test.js",
+			"**/*.test.ts",
+			"**/*.spec.js",
+			"**/*.spec.ts",
+			"**/test_*.py",
+			"**/*_test.py",
+			".agent/TODO.md",
+		},
 
 		WorktreeEnabled:      false,
 		WorktreeBranch:       "",
@@ -314,6 +335,14 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.CodeReview.Prompt != "" {
 		c.CodeReviewPrompt = yc.CodeReview.Prompt
+	}
+
+	// Cleanup options
+	if yc.Cleanup.Enabled != nil {
+		c.CleanupEnabled = *yc.Cleanup.Enabled
+	}
+	if len(yc.Cleanup.Patterns) > 0 {
+		c.CleanupPatterns = yc.Cleanup.Patterns
 	}
 
 	// Worktree options
