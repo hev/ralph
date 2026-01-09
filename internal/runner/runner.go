@@ -133,6 +133,9 @@ func Run(cfg *config.Config) error {
 	}
 	logVerbose(cfg, "Agent dir: %s", cfg.AgentDir)
 	logVerbose(cfg, "Cooldown: %ds", cfg.Cooldown)
+	if cfg.Model != "" {
+		logVerbose(cfg, "Model: %s", cfg.Model)
+	}
 	if cfg.WorktreeEnabled && wtManager != nil {
 		logVerbose(cfg, "Worktree: %s", wtManager.GetWorktreePath())
 		logVerbose(cfg, "Branch: %s", wtManager.GetBranchName())
@@ -145,7 +148,11 @@ func Run(cfg *config.Config) error {
 	// Dry run mode
 	if cfg.DryRun {
 		log("Dry run mode - would execute:")
-		fmt.Println("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
+		if cfg.Model != "" {
+			fmt.Printf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"\n", cfg.Model)
+		} else {
+			fmt.Println("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
+		}
 		fmt.Println()
 		fmt.Println("Full prompt:")
 		fmt.Println("---")
@@ -249,7 +256,7 @@ func Run(cfg *config.Config) error {
 		iterationStart := time.Now()
 
 		// Run claude with streaming output
-		exitCode, err := runClaude(ctx, fullPrompt)
+		exitCode, err := runClaude(ctx, fullPrompt, cfg.Model)
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
 
@@ -391,7 +398,12 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		iterationStart := time.Now()
 
 		// Run claude with review prompt
-		exitCode, err := runClaude(ctx, reviewPrompt)
+		// Use code review model if specified, otherwise fall back to main model
+		model := cfg.CodeReviewModel
+		if model == "" {
+			model = cfg.Model
+		}
+		exitCode, err := runClaude(ctx, reviewPrompt, model)
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
 
@@ -565,8 +577,8 @@ func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime tim
 	}
 }
 
-func runClaude(ctx context.Context, prompt string) (int, error) {
-	client, err := claude.NewClient(ctx, prompt)
+func runClaude(ctx context.Context, prompt string, model string) (int, error) {
+	client, err := claude.NewClient(ctx, prompt, model)
 	if err != nil {
 		return -1, err
 	}
