@@ -77,6 +77,11 @@ func init() {
 	rootCmd.Flags().BoolVar(&cfg.CleanupEnabled, "cleanup", cfg.CleanupEnabled, "Run cleanup phase after code review")
 	rootCmd.Flags().StringVar(&cfg.CleanupModel, "cleanup-model", cfg.CleanupModel, "Model for cleanup phase (defaults to --model)")
 
+	// PR options
+	rootCmd.Flags().BoolVar(&cfg.PREnabled, "pr", cfg.PREnabled, "Create a PR when the loop completes")
+	rootCmd.Flags().StringVar(&cfg.PRTitle, "pr-title", cfg.PRTitle, "Custom title for the PR (empty = auto-generate)")
+	rootCmd.Flags().StringVar(&cfg.PRBase, "pr-base", cfg.PRBase, "Base branch for the PR (empty = default branch)")
+
 	// Worktree options
 	rootCmd.Flags().BoolVarP(&cfg.WorktreeEnabled, "worktree", "w", cfg.WorktreeEnabled, "Run in a git worktree")
 	rootCmd.Flags().StringVarP(&cfg.WorktreeBranch, "branch", "b", cfg.WorktreeBranch, "Branch name for worktree (empty = auto-generate)")
@@ -139,6 +144,12 @@ func init() {
 				savedValues["cleanup"] = cfg.CleanupEnabled
 			case "cleanup-model":
 				savedValues["cleanup-model"] = cfg.CleanupModel
+			case "pr":
+				savedValues["pr"] = cfg.PREnabled
+			case "pr-title":
+				savedValues["pr-title"] = cfg.PRTitle
+			case "pr-base":
+				savedValues["pr-base"] = cfg.PRBase
 			case "worktree":
 				savedValues["worktree"] = cfg.WorktreeEnabled
 			case "branch":
@@ -216,6 +227,12 @@ func init() {
 				cfg.CleanupEnabled = val.(bool)
 			case "cleanup-model":
 				cfg.CleanupModel = val.(string)
+			case "pr":
+				cfg.PREnabled = val.(bool)
+			case "pr-title":
+				cfg.PRTitle = val.(string)
+			case "pr-base":
+				cfg.PRBase = val.(string)
 			case "worktree":
 				cfg.WorktreeEnabled = val.(bool)
 			case "branch":
@@ -281,6 +298,11 @@ Cleanup Options:
   --cleanup                   Run cleanup phase after code review (default: false)
   --cleanup-model MODEL       Model for cleanup phase (defaults to --model)
 
+PR Options:
+  --pr                        Create a PR when the loop completes (default: false)
+  --pr-title TITLE            Custom title for the PR (default: auto-generate)
+  --pr-base BRANCH            Base branch for the PR (default: repo default)
+
 Worktree Options:
   -w, --worktree              Run in a git worktree (default: false)
   -b, --branch NAME           Branch name for worktree (default: auto-generate)
@@ -300,6 +322,8 @@ Examples:
   ralph -w -k                     # Run in worktree, keep after completion
   ralph -s --code-review          # Stop on completion, then run code review
   ralph -s --code-review --cleanup # Full pipeline: work, review, cleanup
+  ralph -s --pr                    # Stop on completion, create PR
+  ralph -w -s --pr                 # Worktree + stop + PR (common pattern)
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))
