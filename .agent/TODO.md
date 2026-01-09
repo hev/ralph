@@ -9,6 +9,20 @@
 - [x] Improvement 5: Automatic PR Creation - Add option to create PR when loop completes
 - [x] Improvement 6: UX Review - Review help output and identify additional improvements
 
+## Test Coverage (per prompt.md plan)
+
+- [x] Test 1: `internal/todo` - Parser tests (ParseFile, ParseItems, Counts methods) - 91.8% coverage
+- [ ] Test 2: `internal/slack/messages` - Pure formatting functions
+- [ ] Test 3: `internal/config` - Configuration loading and merging
+- [ ] Test 4: `internal/claude` - Parser tests
+- [ ] Test 5: Create interfaces for mocking
+- [ ] Test 6: `internal/git` - Tracker and PR tests
+- [ ] Test 7: `internal/worktree` - Manager tests
+- [ ] Test 8: `internal/slack/client` - HTTP mocking tests
+- [ ] Test 9: `internal/metrics` - Tracker tests
+- [ ] Test 10: `internal/claude/client` - Process mocking tests
+- [ ] Test 11: `cmd/ralph` - Runner integration tests
+
 ## Improvement 6 Findings (UX Review)
 
 ### Issues Found
