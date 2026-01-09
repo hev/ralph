@@ -136,7 +136,7 @@ func (t *Tracker) GetNewlyCompletedTodos() []todo.Item {
 	// Build a set of previously completed todo texts
 	previouslyCompleted := make(map[string]bool)
 	for _, item := range t.previousTodos {
-		if item.Completed {
+		if item.IsCompleted() {
 			previouslyCompleted[item.Text] = true
 		}
 	}
@@ -144,12 +144,38 @@ func (t *Tracker) GetNewlyCompletedTodos() []todo.Item {
 	// Find items that are now completed but weren't before
 	var newlyCompleted []todo.Item
 	for _, item := range currentItems {
-		if item.Completed && !previouslyCompleted[item.Text] {
+		if item.IsCompleted() && !previouslyCompleted[item.Text] {
 			newlyCompleted = append(newlyCompleted, item)
 		}
 	}
 
 	return newlyCompleted
+}
+
+// GetNewlyInProgressTodos compares current todos with previous state and returns newly in-progress items
+func (t *Tracker) GetNewlyInProgressTodos() []todo.Item {
+	currentItems := t.GetTodoItems()
+	if len(t.previousTodos) == 0 {
+		return nil
+	}
+
+	// Build a set of previously in-progress todo texts
+	previouslyInProgress := make(map[string]bool)
+	for _, item := range t.previousTodos {
+		if item.IsInProgress() {
+			previouslyInProgress[item.Text] = true
+		}
+	}
+
+	// Find items that are now in-progress but weren't before
+	var newlyInProgress []todo.Item
+	for _, item := range currentItems {
+		if item.IsInProgress() && !previouslyInProgress[item.Text] {
+			newlyInProgress = append(newlyInProgress, item)
+		}
+	}
+
+	return newlyInProgress
 }
 
 // UpdatePreviousTodos saves the current todo state for later comparison
