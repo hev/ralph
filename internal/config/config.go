@@ -83,7 +83,7 @@ func DefaultConfig() *Config {
 		MaxIterations: 0,
 		MaxTime:       0,
 		AgentDir:      "./.agent",
-		Cooldown:      1,
+		Cooldown:      0,
 		Verbose:       true,
 		DryRun:        false,
 
