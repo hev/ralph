@@ -66,6 +66,11 @@ func init() {
 	// Behavior options
 	rootCmd.Flags().BoolVarP(&cfg.StopOnCompletion, "stop-on-completion", "s", cfg.StopOnCompletion, "Exit when all todos are complete")
 
+	// Worktree options
+	rootCmd.Flags().BoolVarP(&cfg.WorktreeEnabled, "worktree", "w", cfg.WorktreeEnabled, "Run in a git worktree")
+	rootCmd.Flags().StringVarP(&cfg.WorktreeBranch, "branch", "b", cfg.WorktreeBranch, "Branch name for worktree (empty = auto-generate)")
+	rootCmd.Flags().BoolVarP(&cfg.WorktreeCleanup, "keep-worktree", "k", false, "Keep worktree after completion (inverts cleanup)")
+
 	// Config file flag
 	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to config file (default: ./ralph.yaml or ~/.config/ralph/ralph.yaml)")
 
@@ -109,6 +114,12 @@ func init() {
 				savedValues["slack-bot-token"] = cfg.SlackBotToken
 			case "stop-on-completion":
 				savedValues["stop-on-completion"] = cfg.StopOnCompletion
+			case "worktree":
+				savedValues["worktree"] = cfg.WorktreeEnabled
+			case "branch":
+				savedValues["branch"] = cfg.WorktreeBranch
+			case "keep-worktree":
+				savedValues["keep-worktree"] = true // Flag was set, invert cleanup
 			}
 		})
 
@@ -166,6 +177,12 @@ func init() {
 				cfg.SlackBotToken = val.(string)
 			case "stop-on-completion":
 				cfg.StopOnCompletion = val.(bool)
+			case "worktree":
+				cfg.WorktreeEnabled = val.(bool)
+			case "branch":
+				cfg.WorktreeBranch = val.(string)
+			case "keep-worktree":
+				cfg.WorktreeCleanup = false // -k inverts cleanup
 			}
 		}
 
@@ -214,6 +231,11 @@ Slack Options:
 Behavior Options:
   -s, --stop-on-completion    Exit when all todos are complete (default: false)
 
+Worktree Options:
+  -w, --worktree              Run in a git worktree (default: false)
+  -b, --branch NAME           Branch name for worktree (default: auto-generate)
+  -k, --keep-worktree         Keep worktree after completion (default: false)
+
 Examples:
   ralph                           # Run forever with defaults
   ralph -n 5                      # Run for 5 iterations
@@ -221,6 +243,9 @@ Examples:
   ralph -p ~/tasks/build.md       # Use custom prompt file
   ralph -n 10 -c 5                # 10 iterations, 5s cooldown
   ralph --config ~/myconfig.yaml  # Use custom config file
+  ralph -w                        # Run in a worktree (auto branch)
+  ralph -w -b feature/my-task     # Run in worktree with specific branch
+  ralph -w -k                     # Run in worktree, keep after completion
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))
