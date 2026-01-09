@@ -13,7 +13,7 @@
 
 - [x] Test 1: `internal/todo` - Parser tests (ParseFile, ParseItems, Counts methods) - 91.8% coverage
 - [x] Test 2: `internal/slack/messages` - Pure formatting functions - 100% coverage
-- [-] Test 3: `internal/config` - Configuration loading and merging
+- [x] Test 3: `internal/config` - Configuration loading and merging - 96.3% coverage
 - [ ] Test 4: `internal/claude` - Parser tests
 - [ ] Test 5: Create interfaces for mocking
 - [ ] Test 6: `internal/git` - Tracker and PR tests
