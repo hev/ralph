@@ -49,6 +49,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&cfg.Verbose, "verbose", "", true, "Enable verbose output")
 	rootCmd.Flags().BoolVarP(&cfg.Verbose, "quiet", "q", false, "Disable verbose output")
 	rootCmd.Flags().BoolVar(&cfg.DryRun, "dry-run", cfg.DryRun, "Show what would run without executing")
+	rootCmd.Flags().StringVar(&cfg.Model, "model", cfg.Model, "Model to use (e.g., sonnet, opus, haiku)")
 
 	// OTEL options
 	rootCmd.Flags().BoolVar(&cfg.OTELEnabled, "otel-enabled", cfg.OTELEnabled, "Enable metrics export")
@@ -70,9 +71,11 @@ func init() {
 	rootCmd.Flags().BoolVar(&cfg.CodeReviewEnabled, "code-review", cfg.CodeReviewEnabled, "Run code review phase after todos complete")
 	rootCmd.Flags().IntVar(&cfg.CodeReviewMaxIterations, "code-review-max-iterations", cfg.CodeReviewMaxIterations, "Max iterations for code review phase")
 	rootCmd.Flags().StringVar(&cfg.CodeReviewPrompt, "code-review-prompt", cfg.CodeReviewPrompt, "Custom prompt for code review phase")
+	rootCmd.Flags().StringVar(&cfg.CodeReviewModel, "code-review-model", cfg.CodeReviewModel, "Model for code review phase (defaults to --model)")
 
 	// Cleanup options
 	rootCmd.Flags().BoolVar(&cfg.CleanupEnabled, "cleanup", cfg.CleanupEnabled, "Run cleanup phase after code review")
+	rootCmd.Flags().StringVar(&cfg.CleanupModel, "cleanup-model", cfg.CleanupModel, "Model for cleanup phase (defaults to --model)")
 
 	// Worktree options
 	rootCmd.Flags().BoolVarP(&cfg.WorktreeEnabled, "worktree", "w", cfg.WorktreeEnabled, "Run in a git worktree")
@@ -102,6 +105,8 @@ func init() {
 				savedValues["verbose"] = cfg.Verbose
 			case "dry-run":
 				savedValues["dry-run"] = cfg.DryRun
+			case "model":
+				savedValues["model"] = cfg.Model
 			case "otel-enabled":
 				savedValues["otel-enabled"] = cfg.OTELEnabled
 			case "otel-endpoint":
@@ -128,8 +133,12 @@ func init() {
 				savedValues["code-review-max-iterations"] = cfg.CodeReviewMaxIterations
 			case "code-review-prompt":
 				savedValues["code-review-prompt"] = cfg.CodeReviewPrompt
+			case "code-review-model":
+				savedValues["code-review-model"] = cfg.CodeReviewModel
 			case "cleanup":
 				savedValues["cleanup"] = cfg.CleanupEnabled
+			case "cleanup-model":
+				savedValues["cleanup-model"] = cfg.CleanupModel
 			case "worktree":
 				savedValues["worktree"] = cfg.WorktreeEnabled
 			case "branch":
@@ -173,6 +182,8 @@ func init() {
 				cfg.Verbose = val.(bool)
 			case "dry-run":
 				cfg.DryRun = val.(bool)
+			case "model":
+				cfg.Model = val.(string)
 			case "otel-enabled":
 				cfg.OTELEnabled = val.(bool)
 			case "otel-endpoint":
@@ -199,8 +210,12 @@ func init() {
 				cfg.CodeReviewMaxIterations = val.(int)
 			case "code-review-prompt":
 				cfg.CodeReviewPrompt = val.(string)
+			case "code-review-model":
+				cfg.CodeReviewModel = val.(string)
 			case "cleanup":
 				cfg.CleanupEnabled = val.(bool)
+			case "cleanup-model":
+				cfg.CleanupModel = val.(string)
 			case "worktree":
 				cfg.WorktreeEnabled = val.(bool)
 			case "branch":
@@ -238,6 +253,7 @@ Options:
   -q, --quiet                 Disable verbose output
   --dry-run                   Show what would run without executing
   --config FILE               Path to config file (default: ./ralph.yaml)
+  --model MODEL               Model to use (e.g., sonnet, opus, haiku)
 
 OTEL Options:
   --otel-enabled              Enable metrics export (default: false)
@@ -259,9 +275,11 @@ Code Review Options:
   --code-review               Run code review phase after todos complete (default: false)
   --code-review-max-iterations N  Max iterations for code review phase (default: 3)
   --code-review-prompt TEXT   Custom prompt for code review phase
+  --code-review-model MODEL   Model for code review phase (defaults to --model)
 
 Cleanup Options:
   --cleanup                   Run cleanup phase after code review (default: false)
+  --cleanup-model MODEL       Model for cleanup phase (defaults to --model)
 
 Worktree Options:
   -w, --worktree              Run in a git worktree (default: false)
@@ -275,6 +293,8 @@ Examples:
   ralph -p ~/tasks/build.md       # Use custom prompt file
   ralph -n 10 -c 5                # 10 iterations, 5s cooldown
   ralph --config ~/myconfig.yaml  # Use custom config file
+  ralph --model opus              # Use opus model
+  ralph --model sonnet --code-review-model opus  # Different models per phase
   ralph -w                        # Run in a worktree (auto branch)
   ralph -w -b feature/my-task     # Run in worktree with specific branch
   ralph -w -k                     # Run in worktree, keep after completion
