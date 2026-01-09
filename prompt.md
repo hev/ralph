@@ -1,712 +1,429 @@
-# Ralph - Go Rewrite with Observability
+# Test Coverage Plan for Ralph
 
-Convert the `ralph` bash script to a Go binary while preserving all current functionality and adding OpenTelemetry-based metrics for Grafana dashboard monitoring.
+## Current State
 
-## Current Feature Set (Preserve All)
+The codebase has **zero test coverage**. No `*_test.go` files exist.
 
-### CLI Options
-- `-p, --prompt FILE` - Path to prompt file (default: ./prompt.md)
-- `-n, --max-iterations N` - Max loop iterations (0 = unlimited)
-- `-t, --max-time SECONDS` - Max total runtime (0 = unlimited)
-- `-d, --agent-dir DIR` - Scratchpad directory (default: ./.agent)
-- `-c, --cooldown SECONDS` - Delay between iterations (default: 1)
-- `-q, --quiet` - Disable verbose output
-- `--dry-run` - Show what would run without executing
-- `-h, --help` - Show help
-- `-v, --version` - Show version
+## Testing Strategy
 
-### Core Behavior
-1. Load and validate prompt file
-2. Create agent directory if missing
-3. Append scratchpad instructions to prompt
-4. Run `claude --dangerously-skip-permissions --print --verbose --output-format stream-json -p "$PROMPT"` in a loop
-5. Parse streaming JSON output and format with colors
-6. Handle iteration/time limits
-7. Graceful shutdown on SIGINT/SIGTERM
-8. Print summary on exit (iterations, time, exit reason)
+Use standard Go testing (`testing` package) with table-driven tests. Create interfaces for external dependencies to enable mocking. Focus on unit tests first, then add integration tests for critical paths.
 
-### Output Formatting
-- Parse JSON stream for message types: `user`, `assistant`, `result`, `system`
-- Color-coded output (blue, green, yellow, red)
-- Tool call display with name and truncated input
-- Result truncation for long outputs
+## Package Testing Priority
 
----
+### 1. `internal/todo` - Parser (Low Risk, Easy Start)
 
-## New Observability Components
+**File to create:** `internal/todo/parser_test.go`
 
-### 1. OpenTelemetry Metrics
+**Functions to test:**
+- `ParseFile()` - File reading and counting
+- `ParseItems()` - Full item extraction with text
 
-Add OTEL metrics exporter that pushes to a collector. Use the OTLP exporter.
+**Test cases:**
+- Pending items: `- [ ] task`
+- Completed items: `- [x] task` and `- [X] task`
+- In-progress items: `- [-] task` and `- [~] task`
+- Mixed checkbox styles in same file
+- Empty file
+- File with no checkboxes
+- Nested lists (should still count)
+- Malformed checkboxes
+- File not found error
 
-**New CLI Flags:**
-- `--otel-endpoint URL` - OTLP endpoint (default: localhost:4317)
-- `--otel-enabled` - Enable metrics export (default: false)
-- `--metrics-prefix` - Metric name prefix (default: ralph)
-- `--project-name NAME` - Override project label (default: cwd basename)
-
-**Metrics to Track:**
-
-All metrics include `project` label (working directory basename or full path).
-
-| Metric Name | Type | Labels | Description |
-|-------------|------|--------|-------------|
-| `ralph_iterations_total` | Counter | `project`, `session_id`, `exit_reason` | Total iterations completed |
-| `ralph_iteration_duration_seconds` | Histogram | `project`, `session_id` | Time per iteration |
-| `ralph_session_duration_seconds` | Gauge | `project`, `session_id` | Current session runtime |
-| `ralph_commits_total` | Counter | `project`, `session_id` | Git commits made during session |
-| `ralph_todos_pending` | Gauge | `project`, `session_id` | Current pending todo items |
-| `ralph_todos_completed` | Gauge | `project`, `session_id` | Current completed todo items |
-| `ralph_claude_errors_total` | Counter | `project`, `session_id`, `error_type` | Claude execution errors |
-| `ralph_active_sessions` | Gauge | `project` | Currently running ralph instances |
-
-**Project Label:**
-- Derived from current working directory at startup
-- Use directory basename by default (e.g., `my-app`)
-- Optional `--project-name` flag to override
-
-### 2. Todo Tracking
-
-Parse `${AGENT_DIR}/TODO.md` after each iteration to extract todo counts:
-- Count lines matching `- [ ]` as pending
-- Count lines matching `- [x]` as completed
-- Update gauges after each iteration
-
-### 3. Commit Tracking
-
-Track git commits by either:
-- Option A: Parse git log before/after each iteration to detect new commits
-- Option B: Count commits with author matching claude's pattern
-- Option C: Hook into git output from claude's stream
-
-Recommend Option A: `git rev-list --count HEAD` before and after iteration.
-
-### 4. Session Management
-
-Generate unique session ID at startup (UUID or timestamp-based) for metric labels. This enables filtering dashboards by session.
+**Approach:** Create test fixture files or use inline strings with `strings.NewReader`.
 
 ---
 
-## Grafana Dashboard
+### 2. `internal/config` - Configuration (Medium Complexity)
 
-Create a JSON dashboard definition (`grafana/ralph-dashboard.json`) with:
+**File to create:** `internal/config/config_test.go`
 
-### Panels
+**Functions to test:**
+- `DefaultConfig()` - Verify all defaults are sensible
+- `LoadFromFile()` - YAML loading and merging
+- `FindConfigFiles()` - File discovery logic
+- `GetSlackNotifyUsers()` - CSV parsing
+- `ScratchpadInstructions()` - Template generation
+- `CodeReviewInstructions()` - Template generation
 
-1. **Sessions Overview** (Stat)
-   - Active sessions count
-   - Total iterations (all sessions)
+**Test cases:**
+- Default config values are correct
+- YAML overwrites only specified fields
+- Missing YAML file returns error
+- Invalid YAML returns error
+- Empty YAML file works (no changes)
+- Partial YAML (some fields only)
+- Slack user parsing: single user, multiple users, empty string
+- Environment variable `RALPH_MODEL` override
+- Config file precedence (global vs local)
 
-2. **Iterations Over Time** (Time series)
-   - `rate(ralph_iterations_total[5m])` by session
-   - Shows iteration velocity
-
-3. **Iteration Duration** (Heatmap)
-   - Distribution of iteration durations
-   - Identify slow iterations
-
-4. **Todo Progress** (Gauge + Time series)
-   - Current pending vs completed ratio
-   - Todo completion rate over time
-
-5. **Commits Over Time** (Time series)
-   - `rate(ralph_commits_total[5m])`
-   - Commit velocity per session
-
-6. **Error Rate** (Time series)
-   - Claude errors by type
-   - Alert threshold indicator
-
-7. **Session Summary Table**
-   - Project, session ID, start time, iterations, commits, todos done
-   - Filterable/sortable by project
-
-### Variables
-- `project` - Dropdown to filter by project
-- `session_id` - Dropdown to filter by session (filtered by selected project)
-- `time_range` - Standard Grafana time picker
+**Approach:** Create temp YAML files for file-based tests. Test merging logic with struct comparison.
 
 ---
 
-## Project Structure
+### 3. `internal/claude` - Parser (Critical, Medium Complexity)
+
+**File to create:** `internal/claude/parser_test.go`
+
+**Functions to test:**
+- `ParseAndPrint()` - Main dispatcher (with captured output)
+- `formatTodoWrite()` - Checklist formatting
+- `formatEdit()` - Diff-style output
+- `formatReadResult()` - Truncation logic
+- `formatChecklist()` - Markdown checklist detection
+- `stripSystemReminders()` - Regex filtering
+
+**Test cases:**
+- Valid JSON message parsing for each type
+- Invalid JSON handling
+- System reminder stripping (various formats)
+- TodoWrite with pending/completed/in-progress items
+- Edit formatting with old/new strings
+- Read result truncation at threshold
+- Checklist detection (markdown checkboxes)
+- Empty content handling
+- Very large content truncation
+
+**Approach:** Create JSON fixture strings. Capture stdout for output verification or refactor to return strings.
+
+---
+
+### 4. `internal/claude` - Client (Requires Mocking)
+
+**File to create:** `internal/claude/client_test.go`
+
+**Functions to test:**
+- `NewClient()` - Command construction
+- `Wait()` - Exit code extraction
+- Error message parsing from stderr
+
+**Test cases:**
+- Command flags are correctly set
+- Exit code 0 handling
+- Non-zero exit code handling
+- Process kill behavior
+- Timeout handling
+
+**Approach:** Create interface for command execution to mock `exec.Cmd`. Alternatively, test command construction without execution.
+
+---
+
+### 5. `internal/git` - Tracker and PR (Requires Mocking)
+
+**Files to create:**
+- `internal/git/tracker_test.go`
+- `internal/git/pr_test.go`
+
+**Functions to test:**
+- `NewTracker()` - Initial baseline
+- `CommitsDelta()` - Delta calculation
+- `UpdateBaseline()` - Baseline reset
+- `CreatePR()` - PR creation
+- `GetCurrentBranch()` - Branch detection
+- `GetDefaultBranch()` - main/master detection
+- `IsBranchPushed()` - Remote check
+
+**Test cases:**
+- Commit delta: 0 commits, 5 commits, negative (shouldn't happen)
+- Branch detection: main, master, custom default
+- PR creation success
+- PR creation failure (gh not installed, auth error)
+- Already pushed vs needs push
+
+**Approach:** Create command executor interface to mock git/gh CLI calls.
+
+---
+
+### 6. `internal/worktree` - Manager (Requires Mocking)
+
+**File to create:** `internal/worktree/worktree_test.go`
+
+**Functions to test:**
+- `Create()` - Worktree creation
+- `Remove()` - Cleanup
+- `generateBranchName()` - Name generation
+- `sanitizeBranchName()` - Path sanitization
+- `branchExists()` - Branch check
+
+**Test cases:**
+- Branch name format: `ralph/YYYYMMDD-HHMMSS`
+- Custom branch name provided
+- Branch sanitization: `/` to `-`
+- Branch already exists handling
+- Worktree path construction
+- Remove with force flag
+- Directory switching during cleanup
+
+**Approach:** Mock git commands. Test name generation and sanitization without mocking.
+
+---
+
+### 7. `internal/slack` - Messages (Pure Functions, Easy)
+
+**File to create:** `internal/slack/messages_test.go`
+
+**Functions to test:**
+- `FormatSessionStart()`
+- `FormatSessionEnd()`
+- `FormatTodoStarted()`
+- `FormatTodoCompleted()`
+- `FormatCodeReviewStarted()`
+- `FormatCodeReviewComplete()`
+- `FormatCleanupStarted()`
+- `FormatCleanupComplete()`
+- `FormatPRCreated()`
+- `formatDuration()`
+- `truncateSessionID()`
+
+**Test cases:**
+- Duration formatting: 0s, 30s, 90s, 3600s, 7200s
+- Session ID truncation: full UUID to 8 chars
+- All message types contain required fields
+- User mention formatting
+- GitHub URL inclusion
+- Completion rate calculation (0%, 50%, 100%)
+
+**Approach:** Pure function testing with struct comparison.
+
+---
+
+### 8. `internal/slack` - Client (HTTP Mocking)
+
+**File to create:** `internal/slack/client_test.go`
+
+**Functions to test:**
+- `PostWebhook()` - Webhook POST
+- `PostMessage()` - API POST
+- `PostWithRetry()` - Retry logic
+- `IsConfigured()` - Configuration check
+
+**Test cases:**
+- Successful webhook post
+- Webhook error (4xx, 5xx)
+- Successful API post with thread_ts
+- API error handling
+- Retry on 5xx (1s, 2s, 4s backoff)
+- No retry on 4xx
+- Context cancellation during retry
+- Not configured returns early
+
+**Approach:** Use `httptest.Server` for HTTP mocking.
+
+---
+
+### 9. `internal/slack` - Notifier (Integration)
+
+**File to create:** `internal/slack/notifier_test.go`
+
+**Functions to test:**
+- `SessionStart()` / `SessionEnd()`
+- `TodoStarted()` / `TodoCompleted()`
+- Message routing (webhook vs API)
+- Threading behavior
+
+**Test cases:**
+- Webhook mode: messages go to webhook
+- Bot mode: messages go to API with threading
+- Disabled mode: no errors, no calls
+- Thread timestamp propagation
+
+**Approach:** Mock the Client interface.
+
+---
+
+### 10. `internal/metrics` - Tracker (Medium Complexity)
+
+**File to create:** `internal/metrics/tracker_test.go`
+
+**Functions to test:**
+- `GetTodoCounts()` - Count aggregation
+- `GetTodoItems()` - Item list
+- `GetNewlyCompletedTodos()` - Delta detection
+- `GetNewlyInProgressTodos()` - Delta detection
+- `UpdatePreviousTodos()` - Snapshot update
+
+**Test cases:**
+- No previous todos, all new
+- Some completed since last check
+- Some started since last check
+- No changes between checks
+- Empty todo file
+
+**Approach:** Create todo fixture files or mock file reading.
+
+---
+
+### 11. `cmd/ralph` - Runner (Integration, Most Complex)
+
+**File to create:** `cmd/ralph/runner_test.go`
+
+**Functions to test:**
+- `Run()` - Main loop (with extensive mocking)
+- `runCodeReviewPhase()` - Review loop
+- `runCleanupPhase()` - File cleanup
+- `runPRPhase()` - PR creation
+- `generatePRTitle()` - Title generation
+- `generatePRBody()` - Body generation
+- `copyFile()` - File copy helper
+- `cleanupWorktree()` - Cleanup helper
+- `printSummary()` - Summary output
+
+**Test cases:**
+- Single iteration success
+- Max iterations reached
+- Max time reached
+- User completion (exit code 0)
+- Signal handling (SIGINT, SIGTERM)
+- Worktree mode vs in-place mode
+- Code review phase sequencing
+- Cleanup phase with patterns
+- PR phase success/failure
+- PR title/body generation with various states
+
+**Approach:** Create comprehensive mocks for Claude, git, Slack, metrics. Test in isolation first.
+
+---
+
+## Interfaces to Create
+
+Create these interfaces to enable mocking:
+
+### `internal/claude/interfaces.go`
+```go
+type Runner interface {
+    Start() error
+    Wait() (int, error)
+    StreamOutput() <-chan string
+    Kill() error
+}
+```
+
+### `internal/git/interfaces.go`
+```go
+type CommandExecutor interface {
+    Run(name string, args ...string) ([]byte, error)
+}
+
+type PRCreator interface {
+    CreatePR(cfg PRConfig) (*PRResult, error)
+}
+
+type CommitTracker interface {
+    CommitsDelta() (int, error)
+    UpdateBaseline() error
+}
+```
+
+### `internal/slack/interfaces.go`
+```go
+type Messenger interface {
+    PostMessage(ctx context.Context, req *ChatPostMessageRequest) (*ChatPostMessageResponse, error)
+    PostWebhook(ctx context.Context, msg *WebhookMessage) error
+    IsConfigured() bool
+}
+```
+
+### `internal/metrics/interfaces.go`
+```go
+type Collector interface {
+    RecordIterationComplete(ctx context.Context, duration time.Duration, exitReason string)
+    RecordCommits(ctx context.Context, count int)
+    RecordError(ctx context.Context, errType string)
+    UpdateTodoCounts(pending, completed int)
+    Shutdown(ctx context.Context) error
+}
+```
+
+---
+
+## Test Fixtures
+
+Create `testdata/` directories in relevant packages:
 
 ```
-ralph/
-├── cmd/
-│   └── ralph/
-│       └── main.go           # Entry point, CLI parsing
-├── internal/
-│   ├── config/
-│   │   └── config.go         # Configuration struct and loading
-│   ├── runner/
-│   │   └── runner.go         # Main loop logic
-│   ├── claude/
-│   │   ├── client.go         # Claude process execution
-│   │   └── parser.go         # JSON stream parser
-│   ├── metrics/
-│   │   ├── collector.go      # OTEL metrics setup
-│   │   └── tracker.go        # Metric tracking helpers
-│   ├── todo/
-│   │   └── parser.go         # TODO.md parsing
-│   └── git/
-│       └── tracker.go        # Git commit counting
-├── grafana/
-│   └── ralph-dashboard.json  # Dashboard definition
-├── docker-compose.yml        # OTEL collector + Grafana stack
-├── otel-collector-config.yaml
-├── go.mod
-├── go.sum
-├── Makefile
-└── README.md
+internal/todo/testdata/
+├── empty.md
+├── all_pending.md
+├── all_completed.md
+├── mixed.md
+└── nested.md
+
+internal/config/testdata/
+├── minimal.yaml
+├── full.yaml
+├── invalid.yaml
+└── partial.yaml
+
+internal/claude/testdata/
+├── user_message.json
+├── assistant_message.json
+├── todo_write.json
+├── edit_result.json
+└── system_reminder.json
 ```
 
 ---
 
 ## Implementation Order
 
-1. **Core CLI** - cobra/viper setup, config parsing, help/version
-2. **Runner Loop** - Main iteration logic without metrics
-3. **Claude Client** - Process execution with streaming JSON
-4. **JSON Parser** - Stream parsing and colored output
-5. **Signal Handling** - Graceful shutdown
-6. **Todo Parser** - Parse TODO.md for counts
-7. **Git Tracker** - Commit counting
-8. **OTEL Metrics** - Metric collector and exporters
-9. **Dashboard** - Grafana JSON definition
-10. **Docker Stack** - Compose file for local observability
+1. **`internal/todo`** - Start here. Pure parsing, no dependencies.
+2. **`internal/slack/messages`** - Pure formatting functions.
+3. **`internal/config`** - File I/O but straightforward.
+4. **`internal/claude/parser`** - JSON parsing, may need output capture.
+5. **Create interfaces** - Before tackling components with external deps.
+6. **`internal/git`** - With command executor mock.
+7. **`internal/worktree`** - With command executor mock.
+8. **`internal/slack/client`** - With HTTP mocking.
+9. **`internal/metrics`** - With mocked dependencies.
+10. **`internal/claude/client`** - With process mocking.
+11. **`cmd/ralph/runner`** - Full integration with all mocks.
 
 ---
 
-## Dependencies
+## Coverage Goals
 
-```go
-require (
-    github.com/spf13/cobra v1.8.0
-    github.com/spf13/viper v1.18.0
-    github.com/fatih/color v1.16.0
-    github.com/google/uuid v1.5.0
-    go.opentelemetry.io/otel v1.22.0
-    go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v0.45.0
-    go.opentelemetry.io/otel/metric v1.22.0
-    go.opentelemetry.io/otel/sdk/metric v1.22.0
-)
-```
+| Package | Target Coverage |
+|---------|-----------------|
+| `internal/todo` | 90%+ |
+| `internal/config` | 85%+ |
+| `internal/claude` | 80%+ |
+| `internal/git` | 75%+ |
+| `internal/worktree` | 75%+ |
+| `internal/slack` | 80%+ |
+| `internal/metrics` | 75%+ |
+| `cmd/ralph` | 70%+ |
 
 ---
 
-## Docker Compose Stack
+## Testing Commands
 
-```yaml
-services:
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+```bash
+# Run all tests
+go test ./...
 
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+# Run with coverage
+go test -cover ./...
 
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/ralph-dashboard.json:/var/lib/grafana/dashboards/ralph.json
+# Generate coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
+
+# Run specific package
+go test ./internal/todo/...
+
+# Run with verbose output
+go test -v ./...
+
+# Run specific test
+go test -run TestParseFile ./internal/todo/...
 ```
 
 ---
 
-## Acceptance Criteria
-
-- [ ] All existing CLI flags work identically to bash version
-- [ ] Colored output matches current format
-- [ ] Graceful shutdown preserves summary output
-- [ ] Metrics export to OTEL collector when enabled
-- [ ] Todo counts update after each iteration
-- [ ] Commit counts tracked accurately
-- [ ] Grafana dashboard shows all defined panels
-- [ ] Docker compose brings up full observability stack
-- [ ] `ralph --help` output matches current style
-- [ ] Binary runs without Docker for users who don't need metrics
-
----
-
-## Slack Notification Hooks
-
-Add Slack integration to notify teams of ralph session progress via threaded messages.
-
-### Behavior Overview
-
-1. **Session Start**: Create a new Slack thread when ralph starts
-2. **Todo Completion**: Update the thread each time a todo item transitions to completed
-3. **Session End**: Post final summary and @mention configured users
-
-### New CLI Flags
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--slack-enabled` | bool | false | Enable Slack notifications |
-| `--slack-webhook-url` | string | "" | Slack webhook URL (or `RALPH_SLACK_WEBHOOK_URL` env var) |
-| `--slack-channel` | string | "" | Channel ID to post to |
-| `--slack-notify-users` | string | "" | Comma-separated Slack user IDs to @mention on completion |
-| `--slack-bot-token` | string | "" | Bot token for thread replies (or `RALPH_SLACK_BOT_TOKEN` env var) |
-
-### Thread Starter Message (Session Start)
-
-Posted when ralph begins. Contains:
-
-```
-🤖 Ralph session started
-
-📁 Project: my-project
-🔗 GitHub: https://github.com/user/my-project
-🖥️ tmux: session-name (if $TMUX is set)
-⏱️ Started: 2025-01-07 14:30:00 UTC
-🆔 Session: abc123-def456
-
-Limits: 10 iterations / 3600s max
-```
-
-**Implementation notes:**
-- Extract GitHub URL from `git remote get-url origin`
-- Parse tmux session from `$TMUX` env var (format: `/tmp/tmux-1000/default,12345,0` → extract socket path, get session name via `tmux display-message -p '#S'`)
-- Use Slack webhook for initial post, capture `ts` (timestamp) for thread replies
-- If tmux not available, omit that line
-
-### Thread Updates (Todo Completion)
-
-Posted as replies to the thread when a todo item is marked complete:
-
-```
-✅ Todo completed (3/7)
-"Implement user authentication"
-
-Iteration: 5 | Commits: 2 | Duration: 45s
-```
-
-**Trigger logic:**
-- Compare todo counts before/after each iteration (already tracked in `metrics.Tracker`)
-- If `completed` count increased, post update for each newly completed item
-- Parse TODO.md to get the actual todo text that was completed
-
-### Final Message (Session End)
-
-Posted when ralph exits (normally or via signal):
-
-```
-🏁 Ralph session complete
-
-📊 Summary:
-• Iterations: 15
-• Duration: 23m 45s
-• Commits: 8
-• Todos: 7/7 complete (100%)
-
-Exit reason: max iterations reached
-
-cc: @user1 @user2
-```
-
-**Implementation notes:**
-- @mentions use Slack user ID format: `<@U1234567890>`
-- Only @mention if `--slack-notify-users` is configured
-- Include exit reason from runner
-
-### Project Structure Addition
-
-```
-internal/
-├── slack/
-│   ├── client.go      # Slack API client (webhook + bot token)
-│   ├── notifier.go    # High-level notification logic
-│   └── messages.go    # Message formatting/templates
-```
-
-### Config Additions
-
-```go
-// In config/config.go
-type Config struct {
-    // ... existing fields ...
-
-    // Slack options
-    SlackEnabled     bool
-    SlackWebhookURL  string
-    SlackChannel     string
-    SlackNotifyUsers []string  // Parsed from comma-separated flag
-    SlackBotToken    string
-}
-```
-
-### Notifier Interface
-
-```go
-// internal/slack/notifier.go
-
-type Notifier struct {
-    client       *Client
-    threadTS     string  // Thread timestamp for replies
-    channel      string
-    notifyUsers  []string
-    projectName  string
-    githubURL    string
-    tmuxSession  string
-    sessionID    string
-}
-
-// Called at session start
-func (n *Notifier) SessionStart(ctx context.Context) error
-
-// Called when todo item(s) complete
-func (n *Notifier) TodoCompleted(ctx context.Context, todoText string, completed, total int, iteration int, commits int, iterDuration time.Duration) error
-
-// Called at session end
-func (n *Notifier) SessionEnd(ctx context.Context, summary SessionSummary) error
-
-type SessionSummary struct {
-    Iterations   int
-    Duration     time.Duration
-    Commits      int
-    TodosDone    int
-    TodosTotal   int
-    ExitReason   string
-}
-```
-
-### Integration Points
-
-1. **runner.go:Run()** - Initialize notifier, call `SessionStart()` before loop, `SessionEnd()` in defer
-2. **runner.go main loop** - After `tracker.AfterIteration()`, check for todo completions and call `TodoCompleted()`
-3. **metrics/tracker.go** - Expose method to get previous vs current todo state for diff detection
-
-### Todo Diff Detection
-
-To detect which todos completed, need to track state across iterations:
-
-```go
-// In metrics/tracker.go or new todo/tracker.go
-
-type TodoTracker struct {
-    previousItems []TodoItem  // State from last iteration
-    currentItems  []TodoItem  // Current state
-}
-
-type TodoItem struct {
-    Text      string
-    Completed bool
-}
-
-// Returns items that transitioned from pending → completed
-func (t *TodoTracker) GetNewlyCompleted() []TodoItem
-```
-
-Parse TODO.md to extract full todo text (not just counts), compare between iterations.
-
-### Environment Variables
-
-Support env vars for sensitive values:
-- `RALPH_SLACK_WEBHOOK_URL` - Webhook URL
-- `RALPH_SLACK_BOT_TOKEN` - Bot OAuth token
-- `RALPH_SLACK_CHANNEL` - Default channel
-- `RALPH_SLACK_NOTIFY_USERS` - Default users to notify
-
-CLI flags override env vars.
-
-### Error Handling
-
-- Slack failures should NOT stop ralph execution
-- Log warnings on Slack errors, continue processing
-- Retry with exponential backoff (1s, 2s, 4s) up to 3 attempts
-- If initial thread creation fails, disable further Slack notifications for session
-
-### Dependencies
-
-```go
-require (
-    github.com/slack-go/slack v0.12.0  // Official Slack SDK
-)
-```
-
-### Acceptance Criteria
-
-- [ ] Thread created on session start with project info
-- [ ] GitHub URL correctly extracted from git remote
-- [ ] tmux session displayed when running in tmux
-- [ ] Thread updated when todo items complete
-- [ ] Completed todo text shown in update message
-- [ ] Final summary posted on session end
-- [ ] Configured users @mentioned in final message
-- [ ] Slack failures don't crash ralph
-- [ ] Sensitive tokens read from env vars
-- [ ] Works with `--slack-enabled=false` (no-op)
-
----
-
-## Stop on Completion
-
-Add opt-in support for stopping the ralph loop when all todos are complete. Because this is ralph (insane defaults), the feature is disabled by default.
-
-### Behavior
-
-When `--stop-on-completion` is enabled:
-1. After each iteration, check if TODO.md has todos and all are marked complete
-2. If `Pending == 0 && Completed > 0`, exit the loop gracefully
-3. Use exit reason: "all todos complete"
-4. If no TODO.md exists or it has no items, continue running (don't stop on empty)
-
-### New CLI Flag
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--stop-on-completion` | bool | false | Exit when all todos are complete |
-
-### Config Additions
-
-```go
-// In config/config.go - Config struct
-StopOnCompletion bool
-
-// In yamlConfig struct
-StopOnCompletion *bool `yaml:"stop_on_completion"`
-```
-
-### YAML Config
-
-```yaml
-# ralph.yaml
-stop_on_completion: true
-```
-
-### Implementation Changes
-
-#### 1. config/config.go
-
-Add `StopOnCompletion` field to Config struct (default: false)
-
-Add to `yamlConfig` struct:
-```go
-StopOnCompletion *bool `yaml:"stop_on_completion"`
-```
-
-Add to `LoadFromFile`:
-```go
-if yc.StopOnCompletion != nil {
-    c.StopOnCompletion = *yc.StopOnCompletion
-}
-```
-
-#### 2. cmd/ralph/main.go
-
-Add CLI flag:
-```go
-rootCmd.Flags().BoolVar(&cfg.StopOnCompletion, "stop-on-completion", cfg.StopOnCompletion, "Exit when all todos are complete")
-```
-
-Add to `savedValues` handling in PreRunE:
-```go
-case "stop-on-completion":
-    savedValues["stop-on-completion"] = cfg.StopOnCompletion
-```
-
-Add to value restoration:
-```go
-case "stop-on-completion":
-    cfg.StopOnCompletion = val.(bool)
-```
-
-Update help template to include the new flag under a new section or after core options.
-
-#### 3. runner/runner.go
-
-Add completion check after the existing todo notification logic (around line 232):
-
-```go
-// Check for stop-on-completion
-if cfg.StopOnCompletion {
-    if counts, err := tracker.GetTodoCounts(); err == nil {
-        if counts.Pending == 0 && counts.Completed > 0 {
-            exitReason = "all todos complete"
-            log("All todos complete, stopping...")
-            break
-        }
-    }
-}
-```
-
-### Exit Reason
-
-The new exit reason "all todos complete" will be:
-- Displayed in the summary output
-- Sent to Slack if notifications enabled
-- Recorded in OTEL metrics if enabled
-
-### Files to Modify
-
-1. `internal/config/config.go` - Add StopOnCompletion to Config and yamlConfig, update LoadFromFile
-2. `cmd/ralph/main.go` - Add --stop-on-completion flag, update PreRunE handlers, update help template
-3. `internal/runner/runner.go` - Add completion check in main loop after todo processing
-
-### Acceptance Criteria
-
-- [ ] `--stop-on-completion` flag available in CLI
-- [ ] `stop_on_completion` available in YAML config
-- [ ] Disabled by default (ralph philosophy)
-- [ ] Stops loop when all todos are complete (Pending=0, Completed>0)
-- [ ] Does NOT stop when TODO.md is empty or missing
-- [ ] Exit reason "all todos complete" shown in summary
-- [ ] Exit reason sent to Slack if enabled
-- [ ] CLI flag overrides YAML config value
-
----
-
-## Logging Improvements
-
-Improve ralph's log output formatting to be more readable and reduce noise. All changes are in `internal/claude/parser.go`.
-
-### 1. Format TodoWrite Tool Calls
-
-When a `TodoWrite` tool is called, format the todo list as a readable checklist instead of raw JSON.
-
-**Current output:**
-```
-[TOOL: TodoWrite]
-{"todos":[{"activeForm":"Adding Context Window gauge panel","content":"Add Context Window gauge panel","status":"completed"},{"activeForm":"Adding User Input counter panel","content":"Add User Input counter panel","status":"in_progress"},...]}
-```
-
-**Desired output:**
-```
-[TOOL: TodoWrite]
-  ✓ Add Context Window gauge panel
-  ▶ Add User Input counter panel
-  ○ Add Session links panel
-  ○ Improve Cost/Model breakdown
-```
-
-**Implementation:**
-- In `printAssistantMessage`, check if `block.Name == "TodoWrite"`
-- Parse `block.Input` as `map[string]interface{}` to extract `todos` array
-- Format each todo with status icons:
-  - `completed` → `✓` (green)
-  - `in_progress` → `▶` (yellow)
-  - `pending` → `○` (dim)
-- Print `content` field for each todo item
-
-### 2. Strip System Reminder Tags
-
-Filter out `<system-reminder>...</system-reminder>` blocks from all output.
-
-**Implementation:**
-- Create helper function `stripSystemReminders(text string) string`
-- Use regex: `(?s)<system-reminder>.*?</system-reminder>`
-- Apply to:
-  - `block.Text` in user messages
-  - `block.Content` and `block.Output` in tool results
-  - `msg.Result` in result messages
-- Strip the tags before printing, don't output anything about them
-
-### 3. Truncate Read Tool Results
-
-Reduce log bloat by truncating large file read outputs.
-
-**Current:** Full file contents displayed
-**Desired:** Summary with truncation
-
-**Implementation:**
-- In `printUserMessage`, when handling `tool_result` blocks:
-- If result exceeds threshold (e.g., 500 chars), truncate with line count
-- Format: `[Read: 245 lines] first few lines...`
-- Show first 3-5 lines of content as preview
-
-### 4. Special Formatting for .agents/TODO.md
-
-When the Read tool reads `.agents/TODO.md` (or `${AGENT_DIR}/TODO.md`), format it as a checklist.
-
-**Implementation:**
-- Detect file path in tool result (may need to track from tool_use block)
-- Parse markdown checklist format:
-  - `- [ ]` → pending (○)
-  - `- [x]` → completed (✓)
-- Display as formatted checklist similar to TodoWrite
-
-**Challenge:** Tool results don't include the file path. Options:
-- Track last `Read` tool call's `file_path` parameter
-- Detect by content pattern (starts with checklist items)
-- Add state to parser to correlate tool_use → tool_result
-
-### 5. Color-Coded Edit Formatting
-
-Format Edit tool calls with diff-style coloring like Claude's output.
-
-**Current output:**
-```
-[TOOL: Edit]
-{"file_path":"/path/file.json","new_string":"new content","old_string":"old content","replace_all":false}
-```
-
-**Desired output:**
-```
-[TOOL: Edit] /path/file.json
-  - old content
-  + new content
-```
-
-**Implementation:**
-- In `printAssistantMessage`, check if `block.Name == "Edit"`
-- Parse `block.Input` to extract `file_path`, `old_string`, `new_string`
-- Print file path on the header line
-- Print `old_string` lines prefixed with `-` in red
-- Print `new_string` lines prefixed with `+` in green
-- Handle multi-line strings by prefixing each line
-- Truncate if diff is very long (>20 lines each side)
-
-### Files to Modify
-
-1. `internal/claude/parser.go`:
-   - Add `stripSystemReminders()` helper
-   - Add `formatTodoWrite()` for TodoWrite tool formatting
-   - Add `formatEdit()` for Edit tool formatting
-   - Add `formatReadResult()` for truncating read results
-   - Update `printAssistantMessage()` to use special formatters
-   - Update `printUserMessage()` to strip reminders and truncate results
-
-### New Helper Functions
-
-```go
-// Strip <system-reminder> tags from text
-func stripSystemReminders(text string) string
-
-// Format TodoWrite tool input as checklist
-func formatTodoWrite(input interface{})
-
-// Format Edit tool input as colored diff
-func formatEdit(input interface{})
-
-// Format/truncate Read tool result
-func formatReadResult(content string, maxLines int) string
-
-// Detect if content looks like a TODO.md checklist
-func isTodoChecklist(content string) bool
-
-// Format checklist content
-func formatChecklist(content string)
-```
-
-### Acceptance Criteria
-
-- [ ] TodoWrite calls display as formatted checklist with status icons
-- [ ] System reminder tags are completely stripped from output
-- [ ] Large Read results are truncated with line count summary
-- [ ] TODO.md content displays as formatted checklist
-- [ ] Edit calls display as colored diff (red removed, green added)
-- [ ] File path shown in Edit tool header
-- [ ] Multi-line edits handled correctly
-- [ ] No raw JSON blobs in tool output for these tools
-- [ ] Other tools continue to display as before
+## Notes
+
+- Use `t.Parallel()` for tests that don't share state
+- Use `t.Helper()` in test helper functions
+- Prefer table-driven tests for multiple cases
+- Use `testify/assert` or `testify/require` if desired (not currently a dependency)
+- Keep test files in the same package for access to unexported functions
+- Consider `go-cmp` for struct comparisons

@@ -1,33 +1,19 @@
-# Ralph Autonomy & UX Improvements
+# Code Review
 
-## Tasks
+## Issues Found
 
-- [x] Improvement 1: Slack Progress Notifications - Post to Slack when Ralph starts working on a TODO item
-- [x] Improvement 2: Automated Code Review Loop - Trigger code review when all TODOs complete
-- [x] Improvement 3: Cleanup Step Post-Review - Remove test files and artifacts after review
-- [x] Improvement 4: Model Selection Options - Add CLI and config options for model selection
-- [x] Improvement 5: Automatic PR Creation - Add option to create PR when loop completes
-- [x] Improvement 6: UX Review - Review help output and identify additional improvements
+- [ ] internal/metrics/collector_test.go:343-364 - Data Race Risk: TestCollector_ConcurrentUpdates writes to collector.currentPending and collector.currentComplete from multiple goroutines without synchronization. The underlying UpdateTodoCounts method lacks thread-safety. Consider adding mutex protection in the Collector struct or documenting that UpdateTodoCounts is not thread-safe.
 
-## Improvement 6 Findings (UX Review)
+- [ ] internal/runner/runner_test.go:467-486 - Unused MockTracker: The MockTracker struct is defined but never used in any test. This appears to be dead code that should either be removed or tests should be added that use it.
 
-### Issues Found
-1. **Missing `-v/--version` in help** - Flag exists but not shown in help output
-2. **README outdated** - Doesn't document model selection, code review, cleanup, PR, stop-on-completion
-3. **No `--cleanup-prompt` flag** - Inconsistent with code-review having one
-4. **No cleanup patterns CLI flag** - Only configurable via YAML
-5. **No `ralph init` command** - No easy way to generate starter config
-6. **No `ralph status` command** - Can't check session state or config
-7. **Cooldown default mismatch** - Help says 1, code defaults to 0
-8. **No model validation** - Invalid model names silently fail
-9. **No composite workflow flags** - Common patterns need many flags
-10. **No progress bar/ETA** - No sense of progress in long sessions
+- [ ] internal/runner/runner_test.go - Missing t.Parallel(): TestGeneratePRTitle, TestGeneratePRBody, TestCopyFile, and other tests don't use t.Parallel() while some tests in the same file do. Consider adding t.Parallel() to all table-driven tests that don't modify shared state for faster test execution and consistency.
 
-### Recommended New Features
-- `ralph init` - Generate starter config file
-- `ralph status` - Show running sessions and config
-- `ralph worktrees` - Manage worktrees (list, clean)
-- `--profile` flag - Named configuration presets
-- Progress display for long sessions
+- [ ] internal/git/tracker_test.go, internal/git/pr_test.go, internal/worktree/worktree_test.go - Code Duplication: The helper functions setupTestGitRepo() and makeCommit() are duplicated across multiple test files. Consider extracting these to a shared testutil package to reduce duplication and improve maintainability.
 
-See `.agent/UX_REVIEW.md` for full details and prioritized recommendations.
+- [ ] internal/slack/client_test.go:708-720 - Inefficient containsSubstring Helper: The containsSubstring helper function reimplements strings.Contains with a custom containsHelper. This should simply use strings.Contains from the standard library for clarity and correctness.
+
+- [ ] internal/claude/client_test.go - Resource Leak Risk: Tests like TestClient_WithContext_Integration, TestClient_Kill_RunningProcess, and TestClient_ContextCancellation create real exec.Command processes but some test paths may not properly clean up the process (e.g., if assertions fail before cleanup). Consider using t.Cleanup() for more robust resource management.
+
+- [ ] internal/runner/runner_test.go - Test File Path Changes Current Directory: Tests like TestRunCleanupPhase_WithPatterns use os.Chdir to change directories and rely on defer to restore. If a test panics, this could affect other tests. Consider using t.Chdir() (Go 1.24+) or restructuring tests to avoid directory changes.
+
+- [ ] internal/runner/runner_test.go:1330-1381 - Platform-Specific Test Assumption: TestRunCleanupPhase_FileRemovalError sets file to read-only (0444) expecting removal to fail, but this behavior varies by OS and user permissions (root can still delete). The test correctly handles this with "may or may not produce error" but could be marked with build tags or skip conditions for clarity.

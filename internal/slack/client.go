@@ -16,6 +16,8 @@ type Client struct {
 	botToken   string
 	channel    string
 	httpClient *http.Client
+	// apiBaseURL allows overriding the Slack API URL for testing
+	apiBaseURL string
 }
 
 // NewClient creates a new Slack client
@@ -119,7 +121,11 @@ func (c *Client) PostMessage(ctx context.Context, req *ChatPostMessageRequest) (
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", "https://slack.com/api/chat.postMessage", bytes.NewReader(body))
+	apiURL := "https://slack.com/api/chat.postMessage"
+	if c.apiBaseURL != "" {
+		apiURL = c.apiBaseURL + "/chat.postMessage"
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
