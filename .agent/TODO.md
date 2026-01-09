@@ -18,8 +18,8 @@
 - [x] Test 5: Create interfaces for mocking
 - [x] Test 6: `internal/git` - Tracker and PR tests - 74.2% coverage
 - [x] Test 7: `internal/worktree` - Manager tests - 82.0% coverage
-- [-] Test 8: `internal/slack/client` - HTTP mocking tests
-- [ ] Test 9: `internal/metrics` - Tracker tests
+- [x] Test 8: `internal/slack/client` - HTTP mocking tests - 92.0% coverage
+- [-] Test 9: `internal/metrics` - Tracker tests
 - [ ] Test 10: `internal/claude/client` - Process mocking tests
 - [ ] Test 11: `cmd/ralph` - Runner integration tests
 
