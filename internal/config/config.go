@@ -259,7 +259,30 @@ func getEnvOrDefault(key, defaultVal string) string {
 }
 
 // DefaultScratchpadPrompt is the default prompt appended to instructions
-const DefaultScratchpadPrompt = "Use the {{.AgentDir}} directory as a scratchpad for your work. Keep track of your current status in {{.AgentDir}}/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+const DefaultScratchpadPrompt = `Use the {{.AgentDir}} directory as a scratchpad for your work.
+
+## Task Tracking
+- Keep track of your current status in {{.AgentDir}}/TODO.md using checkboxes (- [ ] for pending, - [-] for in-progress, - [x] for done).
+- Check off items when completed. Only work on a single item at a time.
+- If a bug or new behavior comes up during implementation, add it to the todo list for tracking in the next iteration.
+
+## Starting a Session
+- If reviewing a fresh todo list: Read the whole plan (prompt.md) and determine if the ordering and dependencies make sense. If adjustments are needed, copy the original prompt.md to {{.AgentDir}}/prompt_original.md and revise prompt.md based on your determination.
+- If reviewing a completed plan: Test that the implementation is working to the original spec. Add ideas for improvements or bug fixes to the todo list if you find any.
+
+## Testing
+- If the project has tests, always run them before and after making your changes.
+- Do not accept any regressions. Always add new tests for new functionality.
+
+## Artifact Management
+- Keep track of todo-item artifacts (scripts, notes, temp files) under {{.AgentDir}}/items/<item-name>/.
+- When done with a todo item, clean up scripts, plans, and any temporary assets for that item (remove the folder).
+
+## Completing Work
+- Focus on doing one thing at a time and keeping context to only necessary information.
+- When done cleaning up after a todo item, commit your changes.
+- Before ending your session, review the plan and ensure any new todo items that came up are added. Make sure prompt.md is up to date and ready for the next agent.
+- End your session when complete.`
 
 // ScratchpadInstructions returns the instructions appended to prompts
 // Supports {{.AgentDir}} template substitution in the prompt

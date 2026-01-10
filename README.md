@@ -167,9 +167,14 @@ Ralph runs Claude Code in a loop with `--dangerously-skip-permissions`. Each ite
 
 The scratchpad instructions tell Claude to:
 - Use the agent directory as a scratchpad
-- Track progress in `TODO.md` using checkboxes
-- Make commits after each file edit
-- Work on one task at a time
+- Track progress in `TODO.md` using checkboxes (`- [ ]` pending, `- [-]` in-progress, `- [x]` done)
+- Work on one task at a time and focus on minimal context
+- Run tests before and after changes (no regressions allowed)
+- Keep todo-item artifacts under `.agent/items/<item-name>/` and clean up when done
+- Commit after completing and cleaning up each item
+- If reviewing a fresh plan, validate ordering and dependencies
+- If reviewing a completed plan, verify implementation and add improvement ideas
+- Keep `prompt.md` up to date for the next agent iteration
 
 You can customize these instructions with the `scratchpad_prompt` config option. Use `{{.AgentDir}}` as a placeholder for the agent directory path.
 
