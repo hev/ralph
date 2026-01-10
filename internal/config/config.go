@@ -9,7 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "0.1.0"
+var (
+	Version = "dev"
+	Commit  = "unknown"
+	Date    = "unknown"
+)
 
 // Config holds all configuration for ralph
 type Config struct {
@@ -64,11 +68,25 @@ type Config struct {
 	PRTitle   string // Custom title for the PR (empty = auto-generate)
 	PRBase    string // Base branch for the PR (empty = default branch)
 
+	// Prompt options
+	ScratchpadPrompt string // Custom scratchpad instructions (appended to prompt)
+
+	// Sound options
+	SoundEnabled  bool   // Play Ralph Wiggum quotes after each iteration
+	SoundMute     bool   // Mute sound playback (respects RALPH_SOUND_MUTE env)
+	SoundPageURL  string // URL to fetch sound clips from
+	SoundPlayer   string // Preferred audio player (afplay, ffplay, mpg123, mpg321)
+	SoundCacheDir string // Directory to cache sound URLs
+
 	// Session info
 	SessionID string
 
 	// Config file path (set by --config flag)
 	ConfigFile string
+
+	// Test mode options
+	TestMode     bool   // Run in test mode (mock Claude, simulate todo progress)
+	TestScenario string // Test scenario: "success", "error", "partial"
 }
 
 // yamlConfig represents the YAML file structure
@@ -124,6 +142,21 @@ type yamlConfig struct {
 		Title   string `yaml:"title"`
 		Base    string `yaml:"base"`
 	} `yaml:"pr"`
+
+	Sound struct {
+		Enabled  *bool  `yaml:"enabled"`
+		Mute     *bool  `yaml:"mute"`
+		PageURL  string `yaml:"page_url"`
+		Player   string `yaml:"player"`
+		CacheDir string `yaml:"cache_dir"`
+	} `yaml:"sound"`
+
+	ScratchpadPrompt string `yaml:"scratchpad_prompt"`
+
+	TestMode struct {
+		Enabled  *bool  `yaml:"enabled"`
+		Scenario string `yaml:"scenario"`
+	} `yaml:"test_mode"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -177,8 +210,28 @@ func DefaultConfig() *Config {
 		PRTitle:   "",
 		PRBase:    "",
 
+		ScratchpadPrompt: DefaultScratchpadPrompt,
+
+		SoundEnabled: false,
+		SoundMute:     getEnvOrDefault("RALPH_SOUND_MUTE", "") == "1",
+		SoundPageURL:  getEnvOrDefault("RALPH_SOUND_PAGE_URL", "https://andrewziola.com/xoom/wiggum/"),
+		SoundPlayer:   getEnvOrDefault("RALPH_SOUND_PLAYER", ""),
+		SoundCacheDir: getSoundCacheDir(),
+
 		SessionID: uuid.New().String(),
+
+		TestMode:     false,
+		TestScenario: "success",
 	}
+}
+
+// getSoundCacheDir returns the cache directory for sound files
+func getSoundCacheDir() string {
+	cacheDir, _ := os.UserCacheDir()
+	if cacheDir == "" {
+		cacheDir = "/tmp"
+	}
+	return filepath.Join(cacheDir, "ralph")
 }
 
 // GetSlackNotifyUsers returns the notify users as a slice
@@ -205,9 +258,18 @@ func getEnvOrDefault(key, defaultVal string) string {
 	return defaultVal
 }
 
+// DefaultScratchpadPrompt is the default prompt appended to instructions
+const DefaultScratchpadPrompt = "Use the {{.AgentDir}} directory as a scratchpad for your work. Keep track of your current status in {{.AgentDir}}/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+
 // ScratchpadInstructions returns the instructions appended to prompts
+// Supports {{.AgentDir}} template substitution in the prompt
 func (c *Config) ScratchpadInstructions() string {
-	return "\n\nUse the " + c.AgentDir + " directory as a scratchpad for your work. Keep track of your current status in " + c.AgentDir + "/TODO.md using checkboxes (- [ ] for pending, - [x] for done). Check off items when completed. Only work on a single item at a time and end your session when complete. Make a commit and push your changes after every single file edit."
+	prompt := c.ScratchpadPrompt
+	if prompt == "" {
+		prompt = DefaultScratchpadPrompt
+	}
+	prompt = strings.ReplaceAll(prompt, "{{.AgentDir}}", c.AgentDir)
+	return "\n\n" + prompt
 }
 
 // CodeReviewInstructions returns the default code review prompt
@@ -402,5 +464,55 @@ func (c *Config) LoadFromFile(path string) error {
 		c.PRBase = yc.PR.Base
 	}
 
+	// Sound options
+	if yc.Sound.Enabled != nil {
+		c.SoundEnabled = *yc.Sound.Enabled
+	}
+	if yc.Sound.Mute != nil {
+		c.SoundMute = *yc.Sound.Mute
+	}
+	if yc.Sound.PageURL != "" {
+		c.SoundPageURL = yc.Sound.PageURL
+	}
+	if yc.Sound.Player != "" {
+		c.SoundPlayer = yc.Sound.Player
+	}
+	if yc.Sound.CacheDir != "" {
+		c.SoundCacheDir = yc.Sound.CacheDir
+	}
+
+	// Prompt options
+	if yc.ScratchpadPrompt != "" {
+		c.ScratchpadPrompt = yc.ScratchpadPrompt
+	}
+
+	// Test mode options
+	if yc.TestMode.Enabled != nil {
+		c.TestMode = *yc.TestMode.Enabled
+	}
+	if yc.TestMode.Scenario != "" {
+		c.TestScenario = yc.TestMode.Scenario
+	}
+
 	return nil
+}
+
+// SoundConfig holds configuration for Ralph sound playback
+type SoundConfig struct {
+	Enabled  bool
+	Mute     bool
+	PageURL  string
+	Player   string
+	CacheDir string
+}
+
+// GetSoundConfig returns the sound configuration
+func (c *Config) GetSoundConfig() SoundConfig {
+	return SoundConfig{
+		Enabled:  c.SoundEnabled,
+		Mute:     c.SoundMute,
+		PageURL:  c.SoundPageURL,
+		Player:   c.SoundPlayer,
+		CacheDir: c.SoundCacheDir,
+	}
 }

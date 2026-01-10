@@ -263,6 +263,12 @@ func (c *Collector) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
+	// Force flush to ensure all pending metrics are exported
+	if err := c.meterProvider.ForceFlush(ctx); err != nil {
+		// Log but continue with shutdown
+		_ = err
+	}
+
 	return c.meterProvider.Shutdown(ctx)
 }
 
