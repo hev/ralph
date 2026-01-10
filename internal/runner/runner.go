@@ -17,7 +17,9 @@ import (
 	"github.com/hev/ralph/internal/config"
 	"github.com/hev/ralph/internal/git"
 	"github.com/hev/ralph/internal/metrics"
+	"github.com/hev/ralph/internal/ralph"
 	"github.com/hev/ralph/internal/slack"
+	"github.com/hev/ralph/internal/testmode"
 	"github.com/hev/ralph/internal/worktree"
 )
 
@@ -163,6 +165,38 @@ func Run(cfg *config.Config) error {
 		return nil
 	}
 
+	// Test mode setup
+	var mockClaude *testmode.MockClaude
+	if cfg.TestMode {
+		log("=== TEST MODE ENABLED ===")
+		log("Scenario: %s", cfg.TestScenario)
+		logVerbose(cfg, "Mock Claude will simulate todo progress")
+
+		mockClaude = testmode.NewMockClaude(cfg.TestScenario, cfg.AgentDir)
+
+		// Set reasonable defaults for test mode
+		if cfg.MaxIterations == 0 {
+			cfg.MaxIterations = 5 // Default test iterations
+		}
+
+		// Enable all phases for success scenario to exercise full flow
+		if cfg.TestScenario == "success" {
+			cfg.StopOnCompletion = true
+			cfg.CodeReviewEnabled = true
+			cfg.CleanupEnabled = true
+			cfg.PREnabled = true
+		}
+
+		// Auto-enable sound in test mode (can still be muted with --sound-mute)
+		cfg.SoundEnabled = true
+
+		// Demonstrate all log types in test mode
+		log("This is a standard log message")
+		logVerbose(cfg, "This is a verbose log message")
+		logError("This is an error log message (test only)")
+		logSuccess("This is a success log message")
+	}
+
 	// Initialize metrics tracker
 	tracker, err := metrics.NewTracker(cfg)
 	if err != nil {
@@ -182,6 +216,12 @@ func Run(cfg *config.Config) error {
 		MaxIterations: cfg.MaxIterations,
 		MaxTime:       cfg.MaxTime,
 	})
+
+	// Initialize sound player
+	soundPlayer := ralph.NewSoundPlayer(cfg.GetSoundConfig())
+	if cfg.SoundEnabled {
+		logVerbose(cfg, "Ralph sounds enabled")
+	}
 
 	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -257,8 +297,17 @@ func Run(cfg *config.Config) error {
 		}
 		iterationStart := time.Now()
 
-		// Run claude with streaming output
-		exitCode, err := runClaude(ctx, fullPrompt, cfg.Model)
+		// Run claude with streaming output (or mock in test mode)
+		var exitCode int
+		if mockClaude != nil {
+			exitCode, err = mockClaude.RunIteration(ctx)
+			// Stream mock output
+			for line := range mockClaude.StreamOutput() {
+				claude.ParseAndPrint(line)
+			}
+		} else {
+			exitCode, err = runClaude(ctx, fullPrompt, cfg.Model)
+		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
 
@@ -273,6 +322,11 @@ func Run(cfg *config.Config) error {
 			}
 		} else {
 			logSuccess("Iteration %d complete", iteration)
+		}
+
+		// Play Ralph Wiggum quote after each iteration
+		if err := soundPlayer.Play(); err != nil {
+			logVerbose(cfg, "Failed to play sound: %v", err)
 		}
 
 		// Record iteration metrics
@@ -332,7 +386,7 @@ func Run(cfg *config.Config) error {
 
 	// Run code review phase if enabled and todos completed
 	if cfg.CodeReviewEnabled && exitReason == "all todos complete" {
-		reviewExitReason, reviewIters := runCodeReviewPhase(ctx, cfg, notifier, tracker)
+		reviewExitReason, reviewIters := runCodeReviewPhase(ctx, cfg, notifier, tracker, soundPlayer, mockClaude)
 		exitReason = reviewExitReason
 		iteration += reviewIters
 	}
@@ -363,17 +417,24 @@ func Run(cfg *config.Config) error {
 
 // runCodeReviewPhase runs the code review loop after todos are complete
 // Returns the exit reason and number of iterations
-func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker) (string, int) {
+func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, soundPlayer *ralph.SoundPlayer, mockClaude *testmode.MockClaude) (string, int) {
 	log("=== Starting Code Review Phase ===")
+
+	// Set mock to code review phase if in test mode
+	if mockClaude != nil {
+		mockClaude.SetPhase("code_review")
+	}
 
 	// Get the code review prompt
 	reviewPrompt := cfg.CodeReviewInstructions()
 
-	// Clear the TODO file to prepare for review issues
+	// Clear the TODO file to prepare for review issues (skip in test mode, mock will write it)
 	todoPath := filepath.Join(cfg.AgentDir, "TODO.md")
-	if err := os.WriteFile(todoPath, []byte("# Code Review\n\n## Issues Found\n\n"), 0644); err != nil {
-		logError("Failed to clear TODO file for code review: %v", err)
-		return "code review setup failed", 0
+	if mockClaude == nil {
+		if err := os.WriteFile(todoPath, []byte("# Code Review\n\n## Issues Found\n\n"), 0644); err != nil {
+			logError("Failed to clear TODO file for code review: %v", err)
+			return "code review setup failed", 0
+		}
 	}
 
 	// Reset todo tracking for review phase
@@ -409,13 +470,23 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		}
 		iterationStart := time.Now()
 
-		// Run claude with review prompt
+		// Run claude with review prompt (or mock in test mode)
 		// Use code review model if specified, otherwise fall back to main model
 		model := cfg.CodeReviewModel
 		if model == "" {
 			model = cfg.Model
 		}
-		exitCode, err := runClaude(ctx, reviewPrompt, model)
+		var exitCode int
+		var err error
+		if mockClaude != nil {
+			exitCode, err = mockClaude.RunIteration(ctx)
+			// Stream mock output
+			for line := range mockClaude.StreamOutput() {
+				claude.ParseAndPrint(line)
+			}
+		} else {
+			exitCode, err = runClaude(ctx, reviewPrompt, model)
+		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
 
@@ -429,6 +500,13 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 			}
 		} else {
 			logSuccess("Code review iteration %d complete", reviewIteration)
+		}
+
+		// Play Ralph Wiggum quote after each code review iteration
+		if soundPlayer != nil {
+			if err := soundPlayer.Play(); err != nil {
+				logVerbose(cfg, "Failed to play sound: %v", err)
+			}
 		}
 
 		// Record iteration metrics
@@ -568,6 +646,23 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 // Returns the PR URL if successful, or an error
 func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker) (string, error) {
 	log("=== Starting PR Creation Phase ===")
+
+	// Test mode: simulate PR creation
+	if cfg.TestMode {
+		log("Test mode: Simulating PR creation...")
+		prURL := "https://github.com/test/repo/pull/999"
+		prTitle := "Test PR Title"
+		logSuccess("PR created (simulated): %s", prURL)
+
+		// Send Slack notification with simulated URL
+		if notifier.IsEnabled() {
+			if err := notifier.PRCreated(ctx, prURL, prTitle); err != nil {
+				logError("Failed to send Slack PR notification: %v", err)
+			}
+		}
+
+		return prURL, nil
+	}
 
 	// Check if we're on a branch other than default
 	currentBranch, err := git.GetCurrentBranch()

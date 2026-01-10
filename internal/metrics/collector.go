@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -41,8 +42,8 @@ type Collector struct {
 
 	// State for gauges
 	startTime       time.Time
-	currentPending  int64
-	currentComplete int64
+	currentPending  atomic.Int64
+	currentComplete atomic.Int64
 }
 
 // CollectorConfig holds configuration for the metrics collector
@@ -179,7 +180,7 @@ func (c *Collector) initMetrics(prefix string) error {
 		prefix+"_todos_pending",
 		metric.WithDescription("Current pending todo items"),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			o.Observe(c.currentPending, metric.WithAttributes(c.projectAttr, c.sessionIDAttr))
+			o.Observe(c.currentPending.Load(), metric.WithAttributes(c.projectAttr, c.sessionIDAttr))
 			return nil
 		}),
 	)
@@ -191,7 +192,7 @@ func (c *Collector) initMetrics(prefix string) error {
 		prefix+"_todos_completed",
 		metric.WithDescription("Current completed todo items"),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			o.Observe(c.currentComplete, metric.WithAttributes(c.projectAttr, c.sessionIDAttr))
+			o.Observe(c.currentComplete.Load(), metric.WithAttributes(c.projectAttr, c.sessionIDAttr))
 			return nil
 		}),
 	)
@@ -235,8 +236,8 @@ func (c *Collector) RecordError(ctx context.Context, errorType string) {
 
 // UpdateTodoCounts updates the todo gauge values
 func (c *Collector) UpdateTodoCounts(pending, completed int) {
-	c.currentPending = int64(pending)
-	c.currentComplete = int64(completed)
+	c.currentPending.Store(int64(pending))
+	c.currentComplete.Store(int64(completed))
 }
 
 // SessionStart marks the session as active
@@ -261,6 +262,12 @@ func (c *Collector) SessionEnd(ctx context.Context) {
 func (c *Collector) Shutdown(ctx context.Context) error {
 	if !c.enabled || c.meterProvider == nil {
 		return nil
+	}
+
+	// Force flush to ensure all pending metrics are exported
+	if err := c.meterProvider.ForceFlush(ctx); err != nil {
+		// Log but continue with shutdown
+		_ = err
 	}
 
 	return c.meterProvider.Shutdown(ctx)

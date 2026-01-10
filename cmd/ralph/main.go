@@ -87,6 +87,14 @@ func init() {
 	rootCmd.Flags().StringVarP(&cfg.WorktreeBranch, "branch", "b", cfg.WorktreeBranch, "Branch name for worktree (empty = auto-generate)")
 	rootCmd.Flags().BoolVarP(&cfg.WorktreeCleanup, "keep-worktree", "k", false, "Keep worktree after completion (inverts cleanup)")
 
+	// Sound options
+	rootCmd.Flags().BoolVar(&cfg.SoundEnabled, "sound", cfg.SoundEnabled, "Play Ralph Wiggum quotes after each iteration")
+	rootCmd.Flags().BoolVar(&cfg.SoundMute, "sound-mute", cfg.SoundMute, "Mute sound playback (or RALPH_SOUND_MUTE=1 env)")
+
+	// Test mode options
+	rootCmd.Flags().BoolVar(&cfg.TestMode, "test-mode", cfg.TestMode, "Run in test mode (mock Claude, simulate todo progress)")
+	rootCmd.Flags().StringVar(&cfg.TestScenario, "test-scenario", cfg.TestScenario, "Test scenario: success, error, partial")
+
 	// Config file flag
 	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to config file (default: ./ralph.yaml or ~/.config/ralph/ralph.yaml)")
 
@@ -156,6 +164,14 @@ func init() {
 				savedValues["branch"] = cfg.WorktreeBranch
 			case "keep-worktree":
 				savedValues["keep-worktree"] = true // Flag was set, invert cleanup
+			case "sound":
+				savedValues["sound"] = cfg.SoundEnabled
+			case "sound-mute":
+				savedValues["sound-mute"] = cfg.SoundMute
+			case "test-mode":
+				savedValues["test-mode"] = cfg.TestMode
+			case "test-scenario":
+				savedValues["test-scenario"] = cfg.TestScenario
 			}
 		})
 
@@ -239,6 +255,14 @@ func init() {
 				cfg.WorktreeBranch = val.(string)
 			case "keep-worktree":
 				cfg.WorktreeCleanup = false // -k inverts cleanup
+			case "sound":
+				cfg.SoundEnabled = val.(bool)
+			case "sound-mute":
+				cfg.SoundMute = val.(bool)
+			case "test-mode":
+				cfg.TestMode = val.(bool)
+			case "test-scenario":
+				cfg.TestScenario = val.(string)
 			}
 		}
 
@@ -308,6 +332,14 @@ Worktree Options:
   -b, --branch NAME           Branch name for worktree (default: auto-generate)
   -k, --keep-worktree         Keep worktree after completion (default: false)
 
+Sound Options:
+  --sound                     Play Ralph Wiggum quotes after each iteration (default: false)
+  --sound-mute                Mute sound playback (or RALPH_SOUND_MUTE=1 env)
+
+Test Mode Options:
+  --test-mode                 Run in test mode (mock Claude, simulate todo progress)
+  --test-scenario SCENARIO    Test scenario: success, error, partial (default: success)
+
 Examples:
   ralph                           # Run forever with defaults
   ralph -n 5                      # Run for 5 iterations
@@ -324,6 +356,9 @@ Examples:
   ralph -s --code-review --cleanup # Full pipeline: work, review, cleanup
   ralph -s --pr                    # Stop on completion, create PR
   ralph -w -s --pr                 # Worktree + stop + PR (common pattern)
+  ralph --sound                     # Play Ralph Wiggum quotes after each iteration
+  ralph --test-mode                  # Run in test mode (mock Claude)
+  ralph --test-mode --slack-enabled  # Test mode with Slack notifications
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))

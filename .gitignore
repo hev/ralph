@@ -6,7 +6,8 @@
 
 # Build output
 build/
-ralph
+dist/
+/ralph
 
 # Go
 *.exe
