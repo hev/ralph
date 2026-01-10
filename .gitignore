@@ -7,7 +7,7 @@
 # Build output
 build/
 dist/
-ralph
+/ralph
 
 # Go
 *.exe
