@@ -68,6 +68,12 @@ type Config struct {
 	PRTitle   string // Custom title for the PR (empty = auto-generate)
 	PRBase    string // Base branch for the PR (empty = default branch)
 
+	// GitHub issue options
+	Issue       string // GitHub issue reference (number, URL, or owner/repo#number)
+	IssueNumber int    // Parsed issue number (set internally)
+	IssueTitle  string // Parsed issue title (set internally)
+	IssueURL    string // Parsed issue URL (set internally)
+
 	// Prompt options
 	ScratchpadPrompt string // Custom scratchpad instructions (appended to prompt)
 
@@ -142,6 +148,8 @@ type yamlConfig struct {
 		Title   string `yaml:"title"`
 		Base    string `yaml:"base"`
 	} `yaml:"pr"`
+
+	Issue string `yaml:"issue"` // GitHub issue reference
 
 	Sound struct {
 		Enabled  *bool  `yaml:"enabled"`
@@ -485,6 +493,11 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.PR.Base != "" {
 		c.PRBase = yc.PR.Base
+	}
+
+	// GitHub issue options
+	if yc.Issue != "" {
+		c.Issue = yc.Issue
 	}
 
 	// Sound options

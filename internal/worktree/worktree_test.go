@@ -647,3 +647,148 @@ func TestManager_FullWorkflow(t *testing.T) {
 		t.Error("Remove() did not remove worktree directory")
 	}
 }
+
+func TestBranchNameFromIssue(t *testing.T) {
+	tests := []struct {
+		name     string
+		prefix   string
+		number   int
+		title    string
+		expected string
+	}{
+		{
+			name:     "simple title",
+			prefix:   "ralph/",
+			number:   42,
+			title:    "Add new feature",
+			expected: "ralph/issue-42-add-new-feature",
+		},
+		{
+			name:     "title with special characters",
+			prefix:   "ralph/",
+			number:   123,
+			title:    "Fix bug: handle @mentions & #hashtags!",
+			expected: "ralph/issue-123-fix-bug-handle-mentions-hashtags",
+		},
+		{
+			name:     "empty title",
+			prefix:   "ralph/",
+			number:   1,
+			title:    "",
+			expected: "ralph/issue-1",
+		},
+		{
+			name:     "title with underscores",
+			prefix:   "feature/",
+			number:   99,
+			title:    "update_config_file",
+			expected: "feature/issue-99-update-config-file",
+		},
+		{
+			name:     "very long title gets truncated",
+			prefix:   "ralph/",
+			number:   42,
+			title:    "This is a very long issue title that should be truncated to keep the branch name reasonable",
+			expected: "ralph/issue-42-this-is-a-very-long-issue-title-that-sho",
+		},
+		{
+			name:     "title with only special characters",
+			prefix:   "ralph/",
+			number:   5,
+			title:    "!@#$%^&*()",
+			expected: "ralph/issue-5",
+		},
+		{
+			name:     "title with unicode",
+			prefix:   "ralph/",
+			number:   7,
+			title:    "Add emoji support 🎉",
+			expected: "ralph/issue-7-add-emoji-support",
+		},
+		{
+			name:     "empty prefix",
+			prefix:   "",
+			number:   10,
+			title:    "No prefix test",
+			expected: "issue-10-no-prefix-test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := BranchNameFromIssue(tt.prefix, tt.number, tt.title)
+			if result != tt.expected {
+				t.Errorf("BranchNameFromIssue(%q, %d, %q) = %q, want %q",
+					tt.prefix, tt.number, tt.title, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSlugifyTitle(t *testing.T) {
+	tests := []struct {
+		name     string
+		title    string
+		expected string
+	}{
+		{
+			name:     "simple words",
+			title:    "Hello World",
+			expected: "hello-world",
+		},
+		{
+			name:     "with numbers",
+			title:    "Version 2.0 release",
+			expected: "version-20-release",
+		},
+		{
+			name:     "multiple spaces",
+			title:    "Multiple   spaces   here",
+			expected: "multiple-spaces-here",
+		},
+		{
+			name:     "leading and trailing spaces",
+			title:    "  trimmed  ",
+			expected: "trimmed",
+		},
+		{
+			name:     "mixed case",
+			title:    "CamelCase and UPPERCASE",
+			expected: "camelcase-and-uppercase",
+		},
+		{
+			name:     "special characters removed",
+			title:    "Fix: bug #123 (urgent!)",
+			expected: "fix-bug-123-urgent",
+		},
+		{
+			name:     "underscores to dashes",
+			title:    "snake_case_title",
+			expected: "snake-case-title",
+		},
+		{
+			name:     "empty string",
+			title:    "",
+			expected: "",
+		},
+		{
+			name:     "only special chars",
+			title:    "!@#$%",
+			expected: "",
+		},
+		{
+			name:     "preserves alphanumeric",
+			title:    "abc123xyz",
+			expected: "abc123xyz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := slugifyTitle(tt.title)
+			if result != tt.expected {
+				t.Errorf("slugifyTitle(%q) = %q, want %q", tt.title, result, tt.expected)
+			}
+		})
+	}
+}

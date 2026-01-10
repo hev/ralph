@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -148,6 +149,48 @@ func (m *Manager) branchExists(branch string) bool {
 func sanitizeBranchName(branch string) string {
 	// Replace slashes with dashes for directory name
 	return strings.ReplaceAll(branch, "/", "-")
+}
+
+// BranchNameFromIssue generates a branch name from an issue number and title
+// Format: ralph/issue-42-short-title (truncated to reasonable length)
+func BranchNameFromIssue(prefix string, number int, title string) string {
+	// Sanitize the title for use in a branch name
+	slug := slugifyTitle(title)
+
+	// Limit slug length to keep branch names reasonable
+	if len(slug) > 40 {
+		slug = slug[:40]
+		// Don't end with a dash
+		slug = strings.TrimSuffix(slug, "-")
+	}
+
+	if slug == "" {
+		return fmt.Sprintf("%sissue-%d", prefix, number)
+	}
+	return fmt.Sprintf("%sissue-%d-%s", prefix, number, slug)
+}
+
+// slugifyTitle converts a title to a URL/branch-safe slug
+func slugifyTitle(title string) string {
+	// Convert to lowercase
+	slug := strings.ToLower(title)
+
+	// Replace spaces and underscores with dashes
+	slug = strings.ReplaceAll(slug, " ", "-")
+	slug = strings.ReplaceAll(slug, "_", "-")
+
+	// Remove any characters that aren't alphanumeric or dashes
+	reg := regexp.MustCompile(`[^a-z0-9-]`)
+	slug = reg.ReplaceAllString(slug, "")
+
+	// Collapse multiple dashes into one
+	reg = regexp.MustCompile(`-+`)
+	slug = reg.ReplaceAllString(slug, "-")
+
+	// Trim leading/trailing dashes
+	slug = strings.Trim(slug, "-")
+
+	return slug
 }
 
 // List returns a list of all worktrees
