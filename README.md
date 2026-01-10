@@ -139,6 +139,9 @@ slack:
   bot_token: xoxb-...
   channel: C0123456789
   notify_users: U0123,U0456
+
+# Custom scratchpad instructions (replaces the default)
+scratchpad_prompt: "Use {{.AgentDir}} for notes. Track tasks in {{.AgentDir}}/TODO.md."
 ```
 
 ### Configuration Precedence
@@ -167,6 +170,8 @@ The scratchpad instructions tell Claude to:
 - Track progress in `TODO.md` using checkboxes
 - Make commits after each file edit
 - Work on one task at a time
+
+You can customize these instructions with the `scratchpad_prompt` config option. Use `{{.AgentDir}}` as a placeholder for the agent directory path.
 
 ## Observability
 
