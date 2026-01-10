@@ -69,31 +69,31 @@ func TestCollector_UpdateTodoCounts(t *testing.T) {
 	collector := &Collector{enabled: false}
 
 	// Initial values should be 0
-	if collector.currentPending != 0 {
-		t.Errorf("Initial currentPending = %d, want 0", collector.currentPending)
+	if collector.currentPending.Load() != 0 {
+		t.Errorf("Initial currentPending = %d, want 0", collector.currentPending.Load())
 	}
-	if collector.currentComplete != 0 {
-		t.Errorf("Initial currentComplete = %d, want 0", collector.currentComplete)
+	if collector.currentComplete.Load() != 0 {
+		t.Errorf("Initial currentComplete = %d, want 0", collector.currentComplete.Load())
 	}
 
 	// Update counts
 	collector.UpdateTodoCounts(5, 3)
 
-	if collector.currentPending != 5 {
-		t.Errorf("After update currentPending = %d, want 5", collector.currentPending)
+	if collector.currentPending.Load() != 5 {
+		t.Errorf("After update currentPending = %d, want 5", collector.currentPending.Load())
 	}
-	if collector.currentComplete != 3 {
-		t.Errorf("After update currentComplete = %d, want 3", collector.currentComplete)
+	if collector.currentComplete.Load() != 3 {
+		t.Errorf("After update currentComplete = %d, want 3", collector.currentComplete.Load())
 	}
 
 	// Update again
 	collector.UpdateTodoCounts(10, 15)
 
-	if collector.currentPending != 10 {
-		t.Errorf("After second update currentPending = %d, want 10", collector.currentPending)
+	if collector.currentPending.Load() != 10 {
+		t.Errorf("After second update currentPending = %d, want 10", collector.currentPending.Load())
 	}
-	if collector.currentComplete != 15 {
-		t.Errorf("After second update currentComplete = %d, want 15", collector.currentComplete)
+	if collector.currentComplete.Load() != 15 {
+		t.Errorf("After second update currentComplete = %d, want 15", collector.currentComplete.Load())
 	}
 }
 
@@ -290,11 +290,11 @@ func TestCollector_Attributes(t *testing.T) {
 	// Access currentPending and currentComplete (these are public through UpdateTodoCounts)
 	collector.UpdateTodoCounts(10, 5)
 
-	if collector.currentPending != 10 {
-		t.Errorf("currentPending = %d, want 10", collector.currentPending)
+	if collector.currentPending.Load() != 10 {
+		t.Errorf("currentPending = %d, want 10", collector.currentPending.Load())
 	}
-	if collector.currentComplete != 5 {
-		t.Errorf("currentComplete = %d, want 5", collector.currentComplete)
+	if collector.currentComplete.Load() != 5 {
+		t.Errorf("currentComplete = %d, want 5", collector.currentComplete.Load())
 	}
 }
 
@@ -313,11 +313,11 @@ func TestCollector_MultipleUpdates(t *testing.T) {
 	}
 
 	// Final state should reflect last update
-	if collector.currentPending != 9 {
-		t.Errorf("After 10 updates, currentPending = %d, want 9", collector.currentPending)
+	if collector.currentPending.Load() != 9 {
+		t.Errorf("After 10 updates, currentPending = %d, want 9", collector.currentPending.Load())
 	}
-	if collector.currentComplete != 18 {
-		t.Errorf("After 10 updates, currentComplete = %d, want 18", collector.currentComplete)
+	if collector.currentComplete.Load() != 18 {
+		t.Errorf("After 10 updates, currentComplete = %d, want 18", collector.currentComplete.Load())
 	}
 }
 
