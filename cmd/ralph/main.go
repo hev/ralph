@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/fatih/color"
 	"github.com/hev/ralph/internal/config"
+	"github.com/hev/ralph/internal/github"
 	"github.com/hev/ralph/internal/runner"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -81,6 +83,9 @@ func init() {
 	rootCmd.Flags().BoolVar(&cfg.PREnabled, "pr", cfg.PREnabled, "Create a PR when the loop completes")
 	rootCmd.Flags().StringVar(&cfg.PRTitle, "pr-title", cfg.PRTitle, "Custom title for the PR (empty = auto-generate)")
 	rootCmd.Flags().StringVar(&cfg.PRBase, "pr-base", cfg.PRBase, "Base branch for the PR (empty = default branch)")
+
+	// GitHub issue options
+	rootCmd.Flags().StringVarP(&cfg.Issue, "issue", "i", cfg.Issue, "GitHub issue number or URL (generates prompt from issue)")
 
 	// Worktree options
 	rootCmd.Flags().BoolVarP(&cfg.WorktreeEnabled, "worktree", "w", cfg.WorktreeEnabled, "Run in a git worktree")
@@ -158,6 +163,8 @@ func init() {
 				savedValues["pr-title"] = cfg.PRTitle
 			case "pr-base":
 				savedValues["pr-base"] = cfg.PRBase
+			case "issue":
+				savedValues["issue"] = cfg.Issue
 			case "worktree":
 				savedValues["worktree"] = cfg.WorktreeEnabled
 			case "branch":
@@ -249,6 +256,8 @@ func init() {
 				cfg.PRTitle = val.(string)
 			case "pr-base":
 				cfg.PRBase = val.(string)
+			case "issue":
+				cfg.Issue = val.(string)
 			case "worktree":
 				cfg.WorktreeEnabled = val.(bool)
 			case "branch":
@@ -269,6 +278,40 @@ func init() {
 		// Handle -q flag (inverts verbose)
 		if cmd.Flags().Changed("quiet") {
 			cfg.Verbose = false
+		}
+
+		// Handle --issue flag: fetch issue and generate prompt
+		if cfg.Issue != "" {
+			// Check if -p was also provided (conflict)
+			if cmd.Flags().Changed("prompt") {
+				return fmt.Errorf("cannot use both --issue and --prompt flags")
+			}
+
+			// Fetch the issue
+			issue, err := github.FetchIssueFromRef(cfg.Issue)
+			if err != nil {
+				return fmt.Errorf("failed to fetch issue: %w", err)
+			}
+
+			// Store the issue info for later use (e.g., PR body, branch name)
+			cfg.IssueNumber = issue.Number
+			cfg.IssueTitle = issue.Title
+			cfg.IssueURL = issue.URL
+
+			// Generate prompt content
+			promptContent := github.GeneratePrompt(issue)
+
+			// Write to prompt.md
+			promptPath := filepath.Join(".", "prompt.md")
+			if err := os.WriteFile(promptPath, []byte(promptContent), 0644); err != nil {
+				return fmt.Errorf("failed to write prompt file: %w", err)
+			}
+
+			// Update config to use the generated prompt
+			cfg.PromptFile = promptPath
+
+			// Log that we generated the prompt from an issue
+			fmt.Printf("[ralph] Generated prompt from issue #%d: %s\n", issue.Number, issue.Title)
 		}
 
 		return nil
@@ -327,6 +370,10 @@ PR Options:
   --pr-title TITLE            Custom title for the PR (default: auto-generate)
   --pr-base BRANCH            Base branch for the PR (default: repo default)
 
+GitHub Issue Options:
+  -i, --issue REF             GitHub issue number or URL (generates prompt from issue)
+                              Formats: 42, #42, owner/repo#42, or full URL
+
 Worktree Options:
   -w, --worktree              Run in a git worktree (default: false)
   -b, --branch NAME           Branch name for worktree (default: auto-generate)
@@ -356,6 +403,10 @@ Examples:
   ralph -s --code-review --cleanup # Full pipeline: work, review, cleanup
   ralph -s --pr                    # Stop on completion, create PR
   ralph -w -s --pr                 # Worktree + stop + PR (common pattern)
+  ralph -i 42                      # Start loop from issue #42
+  ralph -i owner/repo#42           # Issue from specific repo
+  ralph -i 42 -w                   # Issue + worktree (auto branch from issue)
+  ralph -i 42 -w --pr              # Full workflow: issue -> worktree -> PR
   ralph --sound                     # Play Ralph Wiggum quotes after each iteration
   ralph --test-mode                  # Run in test mode (mock Claude)
   ralph --test-mode --slack-enabled  # Test mode with Slack notifications

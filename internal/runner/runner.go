@@ -65,8 +65,16 @@ func Run(cfg *config.Config) error {
 	if cfg.WorktreeEnabled {
 		wtManager = worktree.NewManager(cfg.WorktreeBaseDir, cfg.WorktreeBranchPrefix, cfg.WorktreeCleanup)
 
+		// Determine branch name: explicit > issue-based > auto-generated
+		branchName := cfg.WorktreeBranch
+		if branchName == "" && cfg.IssueNumber > 0 {
+			// Generate branch name from issue
+			branchName = worktree.BranchNameFromIssue(cfg.WorktreeBranchPrefix, cfg.IssueNumber, cfg.IssueTitle)
+			logVerbose(cfg, "Auto-generated branch from issue: %s", branchName)
+		}
+
 		log("Creating worktree...")
-		worktreePath, err := wtManager.Create(cfg.WorktreeBranch)
+		worktreePath, err := wtManager.Create(branchName)
 		if err != nil {
 			logError("Failed to create worktree: %v", err)
 			return err
@@ -752,6 +760,12 @@ func generatePRBody(cfg *config.Config, tracker *metrics.Tracker, baseBranch str
 	var body strings.Builder
 
 	body.WriteString("## Summary\n\n")
+
+	// Add issue reference if this PR was created from an issue
+	if cfg.IssueNumber > 0 {
+		body.WriteString(fmt.Sprintf("Fixes #%d\n\n", cfg.IssueNumber))
+	}
+
 	body.WriteString("Changes made by Ralph automated loop.\n\n")
 
 	// Add todo summary if available
@@ -772,6 +786,11 @@ func generatePRBody(cfg *config.Config, tracker *metrics.Tracker, baseBranch str
 				body.WriteString(fmt.Sprintf("- %s\n", commit))
 			}
 		}
+	}
+
+	// Add source issue link if available
+	if cfg.IssueURL != "" {
+		body.WriteString(fmt.Sprintf("\n## Source Issue\n\n[Issue #%d](%s)\n", cfg.IssueNumber, cfg.IssueURL))
 	}
 
 	body.WriteString("\n---\n\n")
