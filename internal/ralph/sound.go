@@ -17,7 +17,7 @@ var soundFiles embed.FS
 type SoundType string
 
 const (
-	SoundSessionStart    SoundType = "session-start.wav"
+	SoundSessionStart    SoundType = "session-start.mp3"
 	SoundIterationFinish SoundType = "iteration-finish.mp3"
 	SoundTodoComplete    SoundType = "todo-complete.mp3"
 )
