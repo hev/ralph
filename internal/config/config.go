@@ -119,7 +119,7 @@ type yamlConfig struct {
 
 	CodeReview struct {
 		Enabled       *bool  `yaml:"enabled"`
-		MaxIterations int    `yaml:"max_iterations"`
+		MaxIterations *int   `yaml:"max_iterations"`
 		Prompt        string `yaml:"prompt"`
 		Model         string `yaml:"model"`
 	} `yaml:"code_review"`
@@ -185,7 +185,7 @@ func DefaultConfig() *Config {
 		SlackBotToken:    getEnvOrDefault("RALPH_SLACK_BOT_TOKEN", ""),
 
 		CodeReviewEnabled:       false,
-		CodeReviewMaxIterations: 3,
+		CodeReviewMaxIterations: 0,
 		CodeReviewPrompt:        "",
 
 		CleanupEnabled: false,
@@ -441,8 +441,8 @@ func (c *Config) LoadFromFile(path string) error {
 	if yc.CodeReview.Enabled != nil {
 		c.CodeReviewEnabled = *yc.CodeReview.Enabled
 	}
-	if yc.CodeReview.MaxIterations != 0 {
-		c.CodeReviewMaxIterations = yc.CodeReview.MaxIterations
+	if yc.CodeReview.MaxIterations != nil {
+		c.CodeReviewMaxIterations = *yc.CodeReview.MaxIterations
 	}
 	if yc.CodeReview.Prompt != "" {
 		c.CodeReviewPrompt = yc.CodeReview.Prompt

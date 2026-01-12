@@ -1,70 +1,88 @@
 package ralph
 
 import (
+	"embed"
 	"fmt"
-	"io"
-	"math/rand"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strings"
-	"time"
 
 	"github.com/hev/ralph/internal/config"
 )
 
-// HTTP client with timeout
-var httpClient = &http.Client{
-	Timeout: 10 * time.Second,
-}
+//go:embed sounds/*
+var soundFiles embed.FS
+
+// SoundType represents the type of sound event
+type SoundType string
 
 const (
-	soundsCacheFile = "ralph_sounds.txt"
+	SoundSessionStart    SoundType = "session-start.wav"
+	SoundIterationFinish SoundType = "iteration-finish.mp3"
+	SoundTodoComplete    SoundType = "todo-complete.mp3"
 )
 
-// SoundPlayer handles fetching and playing Ralph Wiggum audio clips
+// SoundPlayer handles playing Ralph Wiggum audio clips
 type SoundPlayer struct {
-	config config.SoundConfig
-	sounds []string
+	config   config.SoundConfig
+	cacheDir string
 }
 
 // NewSoundPlayer creates a new SoundPlayer with the given config
 func NewSoundPlayer(cfg config.SoundConfig) *SoundPlayer {
 	return &SoundPlayer{
-		config: cfg,
+		config:   cfg,
+		cacheDir: cfg.CacheDir,
 	}
 }
 
-// Play fetches a random Ralph quote and plays it asynchronously
+// PlaySessionStart plays the session start sound (synchronous - blocks until done)
+func (p *SoundPlayer) PlaySessionStart() error {
+	return p.playHookSoundSync(SoundSessionStart)
+}
+
+// PlayIterationFinish plays the iteration finish sound (asynchronous)
+func (p *SoundPlayer) PlayIterationFinish() error {
+	return p.playHookSoundAsync(SoundIterationFinish)
+}
+
+// PlayTodoComplete plays the todo list complete sound (synchronous - blocks until done)
+func (p *SoundPlayer) PlayTodoComplete() error {
+	return p.playHookSoundSync(SoundTodoComplete)
+}
+
+// Play plays the iteration finish sound (for backwards compatibility)
 func (p *SoundPlayer) Play() error {
+	return p.PlayIterationFinish()
+}
+
+// playHookSoundSync plays a specific embedded sound file synchronously (blocks until done)
+func (p *SoundPlayer) playHookSoundSync(soundType SoundType) error {
 	if !p.config.Enabled || p.config.Mute {
 		return nil
 	}
 
-	// Load sounds if not already loaded (do this synchronously on first call)
-	if len(p.sounds) == 0 {
-		if err := p.loadSounds(); err != nil {
-			return fmt.Errorf("failed to load sounds: %w", err)
-		}
+	tmpFile, err := p.extractSound(soundType)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile)
+
+	return p.playSound(tmpFile)
+}
+
+// playHookSoundAsync plays a specific embedded sound file asynchronously
+func (p *SoundPlayer) playHookSoundAsync(soundType SoundType) error {
+	if !p.config.Enabled || p.config.Mute {
+		return nil
 	}
 
-	if len(p.sounds) == 0 {
-		return fmt.Errorf("no sounds available")
+	tmpFile, err := p.extractSound(soundType)
+	if err != nil {
+		return err
 	}
 
-	// Pick a random sound
-	rand.Seed(time.Now().UnixNano())
-	soundURL := p.sounds[rand.Intn(len(p.sounds))]
-
-	// Play asynchronously so we don't block the loop
 	go func() {
-		tmpFile, err := p.downloadSound(soundURL)
-		if err != nil {
-			return
-		}
 		defer os.Remove(tmpFile)
 		p.playSound(tmpFile)
 	}()
@@ -72,112 +90,26 @@ func (p *SoundPlayer) Play() error {
 	return nil
 }
 
-// loadSounds loads the sound URLs from cache or fetches them
-func (p *SoundPlayer) loadSounds() error {
-	// Ensure cache directory exists
-	if err := os.MkdirAll(p.config.CacheDir, 0755); err != nil {
-		return err
-	}
-
-	cacheFile := filepath.Join(p.config.CacheDir, soundsCacheFile)
-
-	// Try to load from cache first
-	if data, err := os.ReadFile(cacheFile); err == nil {
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				p.sounds = append(p.sounds, line)
-			}
-		}
-		if len(p.sounds) > 0 {
-			return nil
-		}
-	}
-
-	// Fetch from the sound page
-	if err := p.fetchSounds(); err != nil {
-		return err
-	}
-
-	// Cache the sounds
-	if len(p.sounds) > 0 {
-		data := strings.Join(p.sounds, "\n")
-		os.WriteFile(cacheFile, []byte(data), 0644)
-	}
-
-	return nil
-}
-
-// fetchSounds fetches the sound page and extracts MP3 URLs
-func (p *SoundPlayer) fetchSounds() error {
-	resp, err := httpClient.Get(p.config.PageURL)
+// extractSound extracts an embedded sound to a temp file and returns the path
+func (p *SoundPlayer) extractSound(soundType SoundType) (string, error) {
+	soundPath := "sounds/" + string(soundType)
+	data, err := soundFiles.ReadFile(soundPath)
 	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch sound page: %s", resp.Status)
+		return "", fmt.Errorf("failed to read embedded sound %s: %w", soundType, err)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	ext := filepath.Ext(string(soundType))
+	tmpFile, err := os.CreateTemp("", "ralph_*"+ext)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
 
-	// Parse base URL for resolving relative paths
-	baseURL, err := url.Parse(p.config.PageURL)
-	if err != nil {
-		return err
-	}
-
-	// Extract MP3 links using regex
-	// Look for href="...mp3" or src="...mp3" patterns
-	mp3Pattern := regexp.MustCompile(`(?:href|src)=["']([^"']*\.mp3)["']`)
-	matches := mp3Pattern.FindAllStringSubmatch(string(body), -1)
-
-	for _, match := range matches {
-		if len(match) > 1 {
-			mp3URL := match[1]
-			// Resolve relative URLs
-			if !strings.HasPrefix(mp3URL, "http://") && !strings.HasPrefix(mp3URL, "https://") {
-				ref, err := url.Parse(mp3URL)
-				if err != nil {
-					continue
-				}
-				mp3URL = baseURL.ResolveReference(ref).String()
-			}
-			p.sounds = append(p.sounds, mp3URL)
-		}
-	}
-
-	return nil
-}
-
-// downloadSound downloads a sound file to a temporary location
-func (p *SoundPlayer) downloadSound(soundURL string) (string, error) {
-	resp, err := httpClient.Get(soundURL)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download sound: %s", resp.Status)
-	}
-
-	// Create temp file
-	tmpFile, err := os.CreateTemp("", "ralph_*.mp3")
-	if err != nil {
-		return "", err
-	}
-	defer tmpFile.Close()
-
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
 		os.Remove(tmpFile.Name())
-		return "", err
+		return "", fmt.Errorf("failed to write sound data: %w", err)
 	}
+	tmpFile.Close()
 
 	return tmpFile.Name(), nil
 }
@@ -231,12 +163,7 @@ func (p *SoundPlayer) playSound(filePath string) error {
 	return fmt.Errorf("no audio player found (tried: afplay, ffplay, mpg123, mpg321)")
 }
 
-// ClearCache removes the cached sound URLs
+// ClearCache is kept for backwards compatibility but is now a no-op
 func (p *SoundPlayer) ClearCache() error {
-	cacheFile := filepath.Join(p.config.CacheDir, soundsCacheFile)
-	if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	p.sounds = nil
 	return nil
 }
