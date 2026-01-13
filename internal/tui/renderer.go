@@ -269,6 +269,5 @@ func formatTokenCount(n int) string {
 
 // WritePlain writes a line directly without TUI formatting (for non-TTY mode)
 func (r *Renderer) WritePlain(line Line) {
-	style := StyleForLineType(line.LineType)
-	fmt.Fprintln(r.out, style.Render(line.Content))
+	fmt.Fprintln(r.out, line.Content)
 }
