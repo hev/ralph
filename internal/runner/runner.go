@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -59,7 +60,10 @@ func logSuccess(format string, args ...interface{}) {
 // Run executes the main ralph loop
 func Run(cfg *config.Config) error {
 	// Initialize TUI early for logging
-	ui := tui.New(tui.WithBufferSize(cfg.TUIBufferSize))
+	ui := tui.New(
+		tui.WithBufferSize(cfg.TUIBufferSize),
+		tui.WithEnabled(cfg.TUIEnabled),
+	)
 	if err := ui.Start(); err != nil {
 		logError("Failed to start TUI: %v", err)
 		// Continue without TUI - it will operate in passthrough mode
@@ -382,9 +386,10 @@ func Run(cfg *config.Config) error {
 			// Stream mock output
 			for line := range mockClaude.StreamOutput() {
 				claude.ParseAndPrint(line)
+				updateTokenUsage(ui, line)
 			}
 		} else {
-			exitCode, err = runProvider(ctx, provider, fullPrompt, cfg.Model)
+			exitCode, err = runProvider(ctx, provider, fullPrompt, cfg.Model, ui)
 		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
@@ -616,9 +621,10 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 			// Stream mock output
 			for line := range mockClaude.StreamOutput() {
 				claude.ParseAndPrint(line)
+				updateTokenUsage(ui, line)
 			}
 		} else {
-			exitCode, err = runProvider(ctx, provider, reviewPrompt, model)
+			exitCode, err = runProvider(ctx, provider, reviewPrompt, model, ui)
 		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
@@ -960,7 +966,7 @@ func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime tim
 	}
 }
 
-func runClaude(ctx context.Context, prompt string, model string) (int, error) {
+func runClaude(ctx context.Context, prompt string, model string, ui *tui.TUI) (int, error) {
 	client, err := claude.NewClient(ctx, prompt, model)
 	if err != nil {
 		return -1, err
@@ -974,12 +980,13 @@ func runClaude(ctx context.Context, prompt string, model string) (int, error) {
 	lines := client.StreamOutput()
 	for line := range lines {
 		claude.ParseAndPrint(line)
+		updateTokenUsage(ui, line)
 	}
 
 	return client.Wait()
 }
 
-func runCodex(ctx context.Context, prompt string, model string) (int, error) {
+func runCodex(ctx context.Context, prompt string, model string, ui *tui.TUI) (int, error) {
 	client, err := codex.NewClient(ctx, prompt, model)
 	if err != nil {
 		return -1, err
@@ -992,17 +999,18 @@ func runCodex(ctx context.Context, prompt string, model string) (int, error) {
 	lines := client.StreamOutput()
 	for line := range lines {
 		codex.ParseAndPrint(line)
+		updateTokenUsage(ui, line)
 	}
 
 	return client.Wait()
 }
 
-func runProvider(ctx context.Context, provider string, prompt string, model string) (int, error) {
+func runProvider(ctx context.Context, provider string, prompt string, model string, ui *tui.TUI) (int, error) {
 	switch provider {
 	case config.ProviderCodex:
-		return runCodex(ctx, prompt, model)
+		return runCodex(ctx, prompt, model, ui)
 	default:
-		return runClaude(ctx, prompt, model)
+		return runClaude(ctx, prompt, model, ui)
 	}
 }
 
@@ -1030,6 +1038,47 @@ func formatProviderCommand(provider string, model string) string {
 		}
 		return "claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\""
 	}
+}
+
+type tokenUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+type tokenUsageEnvelope struct {
+	Usage   *tokenUsage `json:"usage,omitempty"`
+	Message *struct {
+		Usage *tokenUsage `json:"usage,omitempty"`
+	} `json:"message,omitempty"`
+}
+
+func updateTokenUsage(ui *tui.TUI, line string) {
+	if ui == nil || line == "" {
+		return
+	}
+
+	var envelope tokenUsageEnvelope
+	if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+		return
+	}
+
+	usage := envelope.Usage
+	if usage == nil && envelope.Message != nil {
+		usage = envelope.Message.Usage
+	}
+	if usage == nil {
+		return
+	}
+
+	delta := usage.InputTokens + usage.OutputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	if delta <= 0 {
+		return
+	}
+
+	used, max := ui.State().Tokens()
+	ui.SetTokens(used+delta, max)
 }
 
 func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, prURL string, ui *tui.TUI) {

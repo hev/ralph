@@ -434,6 +434,44 @@ func TestRun_DryRunWithModel(t *testing.T) {
 	}
 }
 
+func TestRun_DryRunWithCodexProvider(t *testing.T) {
+	tmpDir := t.TempDir()
+	promptPath := filepath.Join(tmpDir, "prompt.md")
+	if err := os.WriteFile(promptPath, []byte("test prompt"), 0644); err != nil {
+		t.Fatalf("Failed to create prompt file: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.PromptFile = promptPath
+	cfg.DryRun = true
+	cfg.Provider = config.ProviderCodex
+	cfg.AgentDir = filepath.Join(tmpDir, ".agent")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := Run(cfg)
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Errorf("Run() error = %v", err)
+	}
+
+	var buf strings.Builder
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	if !strings.Contains(output, "codex") {
+		t.Error("Run() dry-run mode with provider codex should show codex command")
+	}
+	if !strings.Contains(output, "exec") {
+		t.Error("Run() dry-run mode with provider codex should use exec")
+	}
+}
+
 func TestRun_CreatesAgentDirectory(t *testing.T) {
 	// Create a temp directory with a prompt file
 	tmpDir := t.TempDir()
@@ -511,39 +549,39 @@ func TestGeneratePRBody_WithMockedData(t *testing.T) {
 
 func TestGeneratePRTitle_EdgeCases(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   string
+		name  string
+		input string
+		want  string
 	}{
 		{
-			name:   "multiple dashes",
-			input:  "add---new---feature",
-			want:   "Add   new   feature",
+			name:  "multiple dashes",
+			input: "add---new---feature",
+			want:  "Add   new   feature",
 		},
 		{
-			name:   "leading dash",
-			input:  "-leading-dash",
-			want:   " leading dash",
+			name:  "leading dash",
+			input: "-leading-dash",
+			want:  " leading dash",
 		},
 		{
-			name:   "trailing dash",
-			input:  "trailing-dash-",
-			want:   "Trailing dash ",
+			name:  "trailing dash",
+			input: "trailing-dash-",
+			want:  "Trailing dash ",
 		},
 		{
-			name:   "only dashes",
-			input:  "---",
-			want:   "   ",
+			name:  "only dashes",
+			input: "---",
+			want:  "   ",
 		},
 		{
-			name:   "numbers",
-			input:  "fix-123-bug",
-			want:   "Fix 123 bug",
+			name:  "numbers",
+			input: "fix-123-bug",
+			want:  "Fix 123 bug",
 		},
 		{
-			name:   "special characters preserved",
-			input:  "add-api-v2",
-			want:   "Add api v2",
+			name:  "special characters preserved",
+			input: "add-api-v2",
+			want:  "Add api v2",
 		},
 	}
 
@@ -782,12 +820,12 @@ func TestRunCleanupPhase_NoPatterns(t *testing.T) {
 func TestGeneratePRTitle_AllPrefixes(t *testing.T) {
 	// Ensure all documented prefixes are handled
 	prefixedBranches := map[string]string{
-		"ralph/my-task":      "My task",
-		"feature/new-thing":  "New thing",
-		"fix/broken-thing":   "Broken thing",
-		"bugfix/issue-123":   "Issue 123",
-		"hotfix/urgent-fix":  "Urgent fix",
-		"some-other-branch":  "Some other branch",
+		"ralph/my-task":     "My task",
+		"feature/new-thing": "New thing",
+		"fix/broken-thing":  "Broken thing",
+		"bugfix/issue-123":  "Issue 123",
+		"hotfix/urgent-fix": "Urgent fix",
+		"some-other-branch": "Some other branch",
 	}
 
 	for input, expected := range prefixedBranches {
@@ -1102,7 +1140,7 @@ func TestRunClaude_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	// Should return error due to cancelled context
-	_, err := runClaude(ctx, "test prompt", "")
+	_, err := runClaude(ctx, "test prompt", "", nil)
 	// The exact behavior depends on timing, but it should handle gracefully
 	// No panic expected
 	_ = err
