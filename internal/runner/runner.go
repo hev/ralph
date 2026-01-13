@@ -14,6 +14,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fatih/color"
 	"github.com/hev/ralph/internal/claude"
+	"github.com/hev/ralph/internal/codex"
 	"github.com/hev/ralph/internal/config"
 	"github.com/hev/ralph/internal/git"
 	"github.com/hev/ralph/internal/metrics"
@@ -72,6 +73,12 @@ func Run(cfg *config.Config) error {
 	if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
 		ui.WriteLineError(fmt.Sprintf("[ralph] Prompt file not found: %s", cfg.PromptFile))
 		return err
+	}
+
+	provider := normalizeProvider(cfg.Provider)
+	if !isValidProvider(provider) {
+		ui.WriteLineError(fmt.Sprintf("[ralph] Unknown provider: %s (expected %s or %s)", provider, config.ProviderClaude, config.ProviderCodex))
+		return fmt.Errorf("unknown provider %q", provider)
 	}
 
 	// Setup worktree if enabled
@@ -164,6 +171,7 @@ func Run(cfg *config.Config) error {
 		}
 		ui.WriteLineWarning(fmt.Sprintf("[ralph] Agent dir: %s", cfg.AgentDir))
 		ui.WriteLineWarning(fmt.Sprintf("[ralph] Cooldown: %ds", cfg.Cooldown))
+		ui.WriteLineWarning(fmt.Sprintf("[ralph] Provider: %s", provider))
 		if cfg.Model != "" {
 			ui.WriteLineWarning(fmt.Sprintf("[ralph] Model: %s", cfg.Model))
 		}
@@ -180,11 +188,7 @@ func Run(cfg *config.Config) error {
 	// Dry run mode
 	if cfg.DryRun {
 		ui.WriteLineInfo("[ralph] Dry run mode - would execute:")
-		if cfg.Model != "" {
-			ui.WriteLineDefault(fmt.Sprintf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"", cfg.Model))
-		} else {
-			ui.WriteLineDefault("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
-		}
+		ui.WriteLineDefault(formatProviderCommand(provider, cfg.Model))
 		ui.WriteLineDefault("")
 		ui.WriteLineDefault("Full prompt:")
 		ui.WriteLineDefault("---")
@@ -199,7 +203,7 @@ func Run(cfg *config.Config) error {
 		ui.WriteLineInfo("[ralph] === TEST MODE ENABLED ===")
 		ui.WriteLineInfo(fmt.Sprintf("[ralph] Scenario: %s", cfg.TestScenario))
 		if cfg.Verbose {
-			ui.WriteLineWarning("[ralph] Mock Claude will simulate todo progress")
+			ui.WriteLineWarning("[ralph] Mock provider will simulate todo progress")
 		}
 
 		mockClaude = testmode.NewMockClaude(cfg.TestScenario, cfg.AgentDir)
@@ -246,6 +250,7 @@ func Run(cfg *config.Config) error {
 		ProjectName:   cfg.ProjectName,
 		RunsRetention: cfg.RunsRetention,
 		Enabled:       cfg.StateLoggingEnabled,
+		Provider:      provider,
 	})
 	if err != nil {
 		ui.WriteLineError(fmt.Sprintf("[ralph] Failed to initialize state manager: %v", err))
@@ -359,7 +364,7 @@ func Run(cfg *config.Config) error {
 		}
 
 		ui.WriteLineInfo(fmt.Sprintf("[ralph] === Iteration %d ===", iteration))
-		ui.WriteLineInfo("[ralph] Running claude (this may take a moment)...")
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Running %s (this may take a moment)...", provider))
 
 		// Track iteration timing
 		if tracker != nil {
@@ -370,7 +375,7 @@ func Run(cfg *config.Config) error {
 		}
 		iterationStart := time.Now()
 
-		// Run claude with streaming output (or mock in test mode)
+		// Run provider with streaming output (or mock in test mode)
 		var exitCode int
 		if mockClaude != nil {
 			exitCode, err = mockClaude.RunIteration(ctx)
@@ -379,7 +384,7 @@ func Run(cfg *config.Config) error {
 				claude.ParseAndPrint(line)
 			}
 		} else {
-			exitCode, err = runClaude(ctx, fullPrompt, cfg.Model)
+			exitCode, err = runProvider(ctx, provider, fullPrompt, cfg.Model)
 		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
@@ -389,7 +394,7 @@ func Run(cfg *config.Config) error {
 				// Context was cancelled (signal received)
 				break
 			}
-			ui.WriteLineError(fmt.Sprintf("[ralph] Claude exited with error (code %d), continuing to next iteration...", exitCode))
+			ui.WriteLineError(fmt.Sprintf("[ralph] %s exited with error (code %d), continuing to next iteration...", provider, exitCode))
 			if tracker != nil {
 				tracker.RecordError(ctx, "execution_error")
 			}
@@ -454,6 +459,10 @@ func Run(cfg *config.Config) error {
 
 			// Update previous todos for next iteration comparison
 			tracker.UpdatePreviousTodos()
+
+			if counts, err := tracker.GetTodoCounts(); err == nil {
+				ui.SetTodos(counts.Completed, counts.Total())
+			}
 		}
 
 		// Log iteration end to state
@@ -538,6 +547,7 @@ func Run(cfg *config.Config) error {
 func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, soundPlayer *ralph.SoundPlayer, mockClaude *testmode.MockClaude, ui *tui.TUI) (string, int) {
 	ui.SetPhase(tui.PhaseCodeReview)
 	ui.WriteLineInfo("[ralph] === Starting Code Review Phase ===")
+	provider := normalizeProvider(cfg.Provider)
 
 	// Set mock to code review phase if in test mode
 	if mockClaude != nil {
@@ -593,7 +603,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		}
 		iterationStart := time.Now()
 
-		// Run claude with review prompt (or mock in test mode)
+		// Run provider with review prompt (or mock in test mode)
 		// Use code review model if specified, otherwise fall back to main model
 		model := cfg.CodeReviewModel
 		if model == "" {
@@ -608,7 +618,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 				claude.ParseAndPrint(line)
 			}
 		} else {
-			exitCode, err = runClaude(ctx, reviewPrompt, model)
+			exitCode, err = runProvider(ctx, provider, reviewPrompt, model)
 		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
@@ -617,7 +627,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 			if ctx.Err() != nil {
 				return "interrupted during code review", reviewIteration
 			}
-			ui.WriteLineError(fmt.Sprintf("[ralph] Claude exited with error (code %d) during code review", exitCode))
+			ui.WriteLineError(fmt.Sprintf("[ralph] %s exited with error (code %d) during code review", provider, exitCode))
 			if tracker != nil {
 				tracker.RecordError(ctx, "code_review_error")
 			}
@@ -967,6 +977,59 @@ func runClaude(ctx context.Context, prompt string, model string) (int, error) {
 	}
 
 	return client.Wait()
+}
+
+func runCodex(ctx context.Context, prompt string, model string) (int, error) {
+	client, err := codex.NewClient(ctx, prompt, model)
+	if err != nil {
+		return -1, err
+	}
+
+	if err := client.Start(); err != nil {
+		return -1, err
+	}
+
+	lines := client.StreamOutput()
+	for line := range lines {
+		codex.ParseAndPrint(line)
+	}
+
+	return client.Wait()
+}
+
+func runProvider(ctx context.Context, provider string, prompt string, model string) (int, error) {
+	switch provider {
+	case config.ProviderCodex:
+		return runCodex(ctx, prompt, model)
+	default:
+		return runClaude(ctx, prompt, model)
+	}
+}
+
+func normalizeProvider(provider string) string {
+	if provider == "" {
+		return config.ProviderClaude
+	}
+	return strings.ToLower(strings.TrimSpace(provider))
+}
+
+func isValidProvider(provider string) bool {
+	return provider == config.ProviderClaude || provider == config.ProviderCodex
+}
+
+func formatProviderCommand(provider string, model string) string {
+	switch provider {
+	case config.ProviderCodex:
+		if model != "" {
+			return fmt.Sprintf("codex --dangerously-bypass-approvals-and-sandbox exec --json --color never --model %s \"$FULL_PROMPT\"", model)
+		}
+		return "codex --dangerously-bypass-approvals-and-sandbox exec --json --color never \"$FULL_PROMPT\""
+	default:
+		if model != "" {
+			return fmt.Sprintf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"", model)
+		}
+		return "claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\""
+	}
 }
 
 func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, prURL string, ui *tui.TUI) {
