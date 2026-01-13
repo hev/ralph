@@ -18,6 +18,7 @@ type TUI struct {
 
 	// Configuration
 	bufferSize int
+	enabled    bool
 
 	// Lifecycle management
 	mu       sync.Mutex
@@ -46,12 +47,20 @@ func WithRenderInterval(d time.Duration) Option {
 	}
 }
 
+// WithEnabled toggles whether the TUI renders in interactive mode.
+func WithEnabled(enabled bool) Option {
+	return func(t *TUI) {
+		t.enabled = enabled
+	}
+}
+
 // New creates a new TUI with the given options.
 // The TUI is not started until Start() is called.
 func New(opts ...Option) *TUI {
 	t := &TUI{
 		bufferSize:     DefaultBufferSize,
 		renderInterval: 16 * time.Millisecond, // ~60fps
+		enabled:        true,
 	}
 
 	// Apply options
@@ -61,6 +70,9 @@ func New(opts ...Option) *TUI {
 
 	// Initialize components
 	t.terminal = NewTerminal()
+	if !t.terminal.IsTerminal() {
+		t.enabled = false
+	}
 	t.buffer = NewBuffer(t.bufferSize)
 	t.renderer = NewRenderer(os.Stdout)
 	t.state = NewUIState()
@@ -72,7 +84,11 @@ func New(opts ...Option) *TUI {
 // IsTerminal returns whether the TUI is running in a terminal.
 // If false, the TUI operates in passthrough mode (plain output).
 func (t *TUI) IsTerminal() bool {
-	return t.terminal.IsTerminal()
+	return t.isInteractiveTerminal()
+}
+
+func (t *TUI) isInteractiveTerminal() bool {
+	return t.enabled && t.terminal.IsTerminal()
 }
 
 // Start initializes the TUI and begins the render loop.
@@ -86,8 +102,8 @@ func (t *TUI) Start() error {
 		return nil // Already running
 	}
 
-	// In non-TTY mode, just mark as running (no setup needed)
-	if !t.terminal.IsTerminal() {
+	// In non-TTY or disabled mode, just mark as running (no setup needed)
+	if !t.isInteractiveTerminal() {
 		t.running = true
 		return nil
 	}
@@ -140,7 +156,7 @@ func (t *TUI) Stop() {
 	}
 
 	// Clean up terminal
-	if t.terminal.IsTerminal() {
+	if t.isInteractiveTerminal() {
 		t.renderer.Cleanup()
 		t.terminal.StopWatchResize()
 		t.terminal.Restore()
@@ -257,7 +273,7 @@ func (t *TUI) resizeLoop() {
 // WriteLine adds a line to the log buffer.
 // In non-TTY mode, writes directly to stdout.
 func (t *TUI) WriteLine(content string, lineType LineType) {
-	if !t.terminal.IsTerminal() {
+	if !t.isInteractiveTerminal() {
 		// Passthrough mode: write directly
 		t.renderer.WritePlain(Line{Content: content, LineType: lineType})
 		return
