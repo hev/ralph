@@ -6,18 +6,24 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/fatih/color"
 )
 
 // captureOutput captures stdout during a function execution
+// Also redirects color.Output to capture colored output
 func captureOutput(f func()) string {
-	old := os.Stdout
+	oldStdout := os.Stdout
+	oldColorOutput := color.Output
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	color.Output = w
 
 	f()
 
 	w.Close()
-	os.Stdout = old
+	os.Stdout = oldStdout
+	color.Output = oldColorOutput
 
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
@@ -350,32 +356,33 @@ func TestFormatInput(t *testing.T) {
 	}
 }
 
-func TestFormatTodoWrite(t *testing.T) {
+func TestFormatTodoWriteLines(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    interface{}
-		success  bool
-		contains []string
+		name          string
+		input         interface{}
+		expectNil     bool
+		contains      []string
+		expectedTypes []LineType
 	}{
 		{
-			name:    "nil input",
-			input:   nil,
-			success: false,
+			name:      "nil input",
+			input:     nil,
+			expectNil: true,
 		},
 		{
-			name:    "non-map input",
-			input:   "string",
-			success: false,
+			name:      "non-map input",
+			input:     "string",
+			expectNil: true,
 		},
 		{
-			name:    "map without todos",
-			input:   map[string]interface{}{"other": "value"},
-			success: false,
+			name:      "map without todos",
+			input:     map[string]interface{}{"other": "value"},
+			expectNil: true,
 		},
 		{
-			name:    "todos not a slice",
-			input:   map[string]interface{}{"todos": "not a slice"},
-			success: false,
+			name:      "todos not a slice",
+			input:     map[string]interface{}{"todos": "not a slice"},
+			expectNil: true,
 		},
 		{
 			name: "valid pending todo",
@@ -384,8 +391,8 @@ func TestFormatTodoWrite(t *testing.T) {
 					map[string]interface{}{"content": "Task 1", "status": "pending"},
 				},
 			},
-			success:  true,
-			contains: []string{"Task 1"},
+			contains:      []string{"Task 1"},
+			expectedTypes: []LineType{LineTypeDim},
 		},
 		{
 			name: "valid completed todo",
@@ -394,8 +401,8 @@ func TestFormatTodoWrite(t *testing.T) {
 					map[string]interface{}{"content": "Done task", "status": "completed"},
 				},
 			},
-			success:  true,
-			contains: []string{"Done task"},
+			contains:      []string{"Done task"},
+			expectedTypes: []LineType{LineTypeSuccess},
 		},
 		{
 			name: "valid in_progress todo",
@@ -404,8 +411,8 @@ func TestFormatTodoWrite(t *testing.T) {
 					map[string]interface{}{"content": "Working on this", "status": "in_progress"},
 				},
 			},
-			success:  true,
-			contains: []string{"Working on this"},
+			contains:      []string{"Working on this"},
+			expectedTypes: []LineType{LineTypeWarning},
 		},
 		{
 			name: "multiple todos",
@@ -416,44 +423,63 @@ func TestFormatTodoWrite(t *testing.T) {
 					map[string]interface{}{"content": "Task 3", "status": "in_progress"},
 				},
 			},
-			success:  true,
-			contains: []string{"Task 1", "Task 2", "Task 3"},
+			contains:      []string{"Task 1", "Task 2", "Task 3"},
+			expectedTypes: []LineType{LineTypeDim, LineTypeSuccess, LineTypeWarning},
 		},
 		{
 			name: "empty todos array",
 			input: map[string]interface{}{
 				"todos": []interface{}{},
 			},
-			success: true,
+			expectNil: false, // Returns empty slice, not nil
 		},
 		{
 			name: "todo item not a map",
 			input: map[string]interface{}{
 				"todos": []interface{}{"not a map"},
 			},
-			success: true, // Still returns true, just skips invalid items
+			expectNil: false, // Returns empty slice, skips invalid items
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureOutput(func() {
-				result := formatTodoWrite(tt.input)
-				if result != tt.success {
-					t.Errorf("formatTodoWrite() = %v, want %v", result, tt.success)
-				}
-			})
+			lines := formatTodoWriteLines(tt.input)
 
+			if tt.expectNil && lines != nil {
+				t.Errorf("formatTodoWriteLines() = %v, want nil", lines)
+				return
+			}
+			if !tt.expectNil && lines == nil && len(tt.contains) > 0 {
+				t.Error("formatTodoWriteLines() returned nil, want non-nil")
+				return
+			}
+
+			// Check content contains expected strings
 			for _, expected := range tt.contains {
-				if !strings.Contains(output, expected) {
-					t.Errorf("formatTodoWrite() output should contain %q, got %q", expected, output)
+				found := false
+				for _, line := range lines {
+					if strings.Contains(line.Content, expected) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("formatTodoWriteLines() output should contain %q", expected)
+				}
+			}
+
+			// Check expected line types
+			for i, expectedType := range tt.expectedTypes {
+				if i < len(lines) && lines[i].LineType != expectedType {
+					t.Errorf("formatTodoWriteLines() line %d type = %v, want %v", i, lines[i].LineType, expectedType)
 				}
 			}
 		})
 	}
 }
 
-func TestFormatEdit(t *testing.T) {
+func TestFormatEditLines(t *testing.T) {
 	tests := []struct {
 		name         string
 		input        interface{}
@@ -538,61 +564,82 @@ func TestFormatEdit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureOutput(func() {
-				path, success := formatEdit(tt.input)
-				if success != tt.success {
-					t.Errorf("formatEdit() success = %v, want %v", success, tt.success)
-				}
-				if success && path != tt.expectedPath {
-					t.Errorf("formatEdit() path = %q, want %q", path, tt.expectedPath)
-				}
-			})
+			path, lines, success := formatEditLines(tt.input)
 
+			if success != tt.success {
+				t.Errorf("formatEditLines() success = %v, want %v", success, tt.success)
+			}
+			if success && path != tt.expectedPath {
+				t.Errorf("formatEditLines() path = %q, want %q", path, tt.expectedPath)
+			}
+
+			// Check content contains expected strings
 			for _, expected := range tt.contains {
-				if !strings.Contains(output, expected) {
-					t.Errorf("formatEdit() output should contain %q, got %q", expected, output)
+				found := false
+				for _, line := range lines {
+					if strings.Contains(line.Content, expected) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("formatEditLines() output should contain %q", expected)
 				}
 			}
 		})
 	}
 }
 
-func TestFormatEditTruncation(t *testing.T) {
+func TestFormatEditLinesTruncation(t *testing.T) {
 	// Create input with more than 20 lines
-	var oldLines, newLines []string
+	var oldLinesList, newLinesList []string
 	for i := 0; i < 25; i++ {
-		oldLines = append(oldLines, "old line")
-		newLines = append(newLines, "new line")
+		oldLinesList = append(oldLinesList, "old line")
+		newLinesList = append(newLinesList, "new line")
 	}
 
 	input := map[string]interface{}{
 		"file_path":  "/path/to/file.go",
-		"old_string": strings.Join(oldLines, "\n"),
-		"new_string": strings.Join(newLines, "\n"),
+		"old_string": strings.Join(oldLinesList, "\n"),
+		"new_string": strings.Join(newLinesList, "\n"),
 	}
 
-	output := captureOutput(func() {
-		path, success := formatEdit(input)
-		if !success {
-			t.Error("formatEdit() should succeed")
-		}
-		if path != "/path/to/file.go" {
-			t.Errorf("formatEdit() path = %q, want %q", path, "/path/to/file.go")
-		}
-	})
+	path, lines, success := formatEditLines(input)
+	if !success {
+		t.Error("formatEditLines() should succeed")
+	}
+	if path != "/path/to/file.go" {
+		t.Errorf("formatEditLines() path = %q, want %q", path, "/path/to/file.go")
+	}
 
-	// Count old line occurrences - should be exactly 20 (truncated from 25)
-	oldCount := strings.Count(output, "old line")
-	newCount := strings.Count(output, "new line")
+	// Count old line and new line occurrences - should be exactly 20 each (truncated from 25)
+	// Plus 2 truncation indicator lines
+	oldCount := 0
+	newCount := 0
+	truncatedCount := 0
+	for _, line := range lines {
+		if strings.Contains(line.Content, "old line") {
+			oldCount++
+		}
+		if strings.Contains(line.Content, "new line") {
+			newCount++
+		}
+		if strings.Contains(line.Content, "truncated") {
+			truncatedCount++
+		}
+	}
 	if oldCount != 20 {
-		t.Errorf("formatEdit() should truncate to 20 old lines, got %d", oldCount)
+		t.Errorf("formatEditLines() should truncate to 20 old lines, got %d", oldCount)
 	}
 	if newCount != 20 {
-		t.Errorf("formatEdit() should truncate to 20 new lines, got %d", newCount)
+		t.Errorf("formatEditLines() should truncate to 20 new lines, got %d", newCount)
+	}
+	if truncatedCount != 2 {
+		t.Errorf("formatEditLines() should have 2 truncation indicators, got %d", truncatedCount)
 	}
 }
 
-func TestFormatChecklist(t *testing.T) {
+func TestFormatChecklistLines(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
@@ -627,13 +674,19 @@ func TestFormatChecklist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureOutput(func() {
-				formatChecklist(tt.content)
-			})
+			lines := formatChecklistLines(tt.content)
 
+			// Check content contains expected strings
 			for _, expected := range tt.contains {
-				if !strings.Contains(output, expected) {
-					t.Errorf("formatChecklist() output should contain %q, got %q", expected, output)
+				found := false
+				for _, line := range lines {
+					if strings.Contains(line.Content, expected) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("formatChecklistLines() output should contain %q", expected)
 				}
 			}
 		})
