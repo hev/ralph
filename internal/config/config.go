@@ -97,6 +97,9 @@ type Config struct {
 	// State logging options
 	StateLoggingEnabled bool // Enable automatic state logging (default: true)
 	RunsRetention       int  // Number of runs to keep in runs/ (default: 50)
+
+	// TUI options
+	TUIBufferSize int // Number of lines to keep in TUI scroll buffer (default: 10000)
 }
 
 // yamlConfig represents the YAML file structure
@@ -174,6 +177,10 @@ type yamlConfig struct {
 		Enabled       *bool `yaml:"enabled"`
 		RunsRetention *int  `yaml:"runs_retention"`
 	} `yaml:"state_logging"`
+
+	TUI struct {
+		BufferSize *int `yaml:"buffer_size"`
+	} `yaml:"tui"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -242,6 +249,8 @@ func DefaultConfig() *Config {
 
 		StateLoggingEnabled: true,
 		RunsRetention:       50,
+
+		TUIBufferSize: 10000,
 	}
 }
 
@@ -281,6 +290,20 @@ func getEnvOrDefault(key, defaultVal string) string {
 // DefaultScratchpadPrompt is the default prompt appended to instructions
 const DefaultScratchpadPrompt = `Use the {{.AgentDir}} directory as a scratchpad for your work.
 
+## CRITICAL: One Task Per Session
+
+You are running in a loop. Each session should complete ONE small task, then EXIT.
+This prevents context rot and keeps each session focused.
+
+Examples of "one task":
+- Create or update the implementation plan in TODO.md
+- Implement a single function or fix a single bug
+- Add tests for one component
+- Fix one failing test
+
+When your single task is complete: COMMIT and EXIT. The loop will start a fresh session.
+Do NOT try to complete multiple tasks in one session. Do NOT continue "just to finish one more thing."
+
 ## Directory Structure
 - {{.AgentDir}}/IMPLEMENTATION_PLAN.md - The main implementation plan (your input)
 - {{.AgentDir}}/TODO.md - Granular task checkboxes (update as you work)
@@ -301,19 +324,21 @@ const DefaultScratchpadPrompt = `Use the {{.AgentDir}} directory as a scratchpad
 - Add notes about gotchas, workarounds, or important decisions.
 
 ## Starting a Session
-- Read the implementation plan ({{.AgentDir}}/IMPLEMENTATION_PLAN.md) and TODO.md to understand current state.
-- Check guardrails.md for any lessons from previous sessions.
-- If the plan needs adjustment, update it and note the reason.
+1. Read TODO.md to find the next pending task (or create the plan if none exists)
+2. Check guardrails.md for lessons from previous sessions
+3. Pick ONE task to complete this session
 
 ## Testing
 - If the project has tests, always run them before and after making your changes.
 - Do not accept any regressions. Always add new tests for new functionality.
 
-## Completing Work
-- Focus on doing one thing at a time.
-- When done with a todo item, commit your changes.
-- Before ending your session, ensure TODO.md is up to date for the next agent.
-- End your session when complete.`
+## Completing Your Single Task
+1. Finish your one task
+2. Mark it complete in TODO.md (- [x])
+3. Commit your changes
+4. EXIT immediately - do not start another task
+
+The loop handles everything else. Trust the loop.`
 
 // ScratchpadInstructions returns the instructions appended to prompts
 // Supports {{.AgentDir}} template substitution in the prompt
@@ -559,6 +584,11 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.StateLogging.RunsRetention != nil {
 		c.RunsRetention = *yc.StateLogging.RunsRetention
+	}
+
+	// TUI options
+	if yc.TUI.BufferSize != nil {
+		c.TUIBufferSize = *yc.TUI.BufferSize
 	}
 
 	return nil
