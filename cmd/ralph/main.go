@@ -87,6 +87,10 @@ func init() {
 	rootCmd.Flags().BoolVar(&cfg.TestMode, "test-mode", cfg.TestMode, "Run in test mode (mock Claude, simulate todo progress)")
 	rootCmd.Flags().StringVar(&cfg.TestScenario, "test-scenario", cfg.TestScenario, "Test scenario: success, error, partial")
 
+	// State logging options
+	rootCmd.Flags().BoolVar(&cfg.StateLoggingEnabled, "state-logging", cfg.StateLoggingEnabled, "Enable automatic state logging")
+	rootCmd.Flags().IntVar(&cfg.RunsRetention, "runs-retention", cfg.RunsRetention, "Number of run logs to keep in runs/")
+
 	// Config file flag
 	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to config file (default: ./ralph.yaml or ~/.config/ralph/ralph.yaml)")
 
@@ -148,6 +152,10 @@ func init() {
 				savedValues["test-mode"] = cfg.TestMode
 			case "test-scenario":
 				savedValues["test-scenario"] = cfg.TestScenario
+			case "state-logging":
+				savedValues["state-logging"] = cfg.StateLoggingEnabled
+			case "runs-retention":
+				savedValues["runs-retention"] = cfg.RunsRetention
 			}
 		})
 
@@ -223,6 +231,10 @@ func init() {
 				cfg.TestMode = val.(bool)
 			case "test-scenario":
 				cfg.TestScenario = val.(string)
+			case "state-logging":
+				cfg.StateLoggingEnabled = val.(bool)
+			case "runs-retention":
+				cfg.RunsRetention = val.(int)
 			}
 		}
 
@@ -237,6 +249,18 @@ func init() {
 		// Handle -q flag (inverts verbose)
 		if cmd.Flags().Changed("quiet") {
 			cfg.Verbose = false
+		}
+
+		// Backward compatibility: fall back to ./prompt.md if new default doesn't exist
+		if !cmd.Flags().Changed("prompt") {
+			if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
+				// New default (.agent/IMPLEMENTATION_PLAN.md) doesn't exist
+				oldDefault := "./prompt.md"
+				if _, err := os.Stat(oldDefault); err == nil {
+					// Old default exists, use it for backward compatibility
+					cfg.PromptFile = oldDefault
+				}
+			}
 		}
 
 		// Handle --issue flag: fetch issue and generate prompt
@@ -288,7 +312,7 @@ Usage: ralph [OPTIONS]
 
 Options:
   -h, --help                  Show this help message
-  -p, --prompt FILE           Path to prompt file (default: ./prompt.md)
+  -p, --prompt FILE           Path to prompt file (default: .agent/IMPLEMENTATION_PLAN.md)
   -n, --max-iterations N      Max loop iterations (default: 0 = unlimited)
   -t, --max-time SECONDS      Max total runtime in seconds (default: 0 = unlimited)
   -d, --agent-dir DIR         Scratchpad directory (default: ./.agent)
@@ -332,6 +356,10 @@ Sound Options:
 Test Mode Options:
   --test-mode                 Run in test mode (mock Claude, simulate todo progress)
   --test-scenario SCENARIO    Test scenario: success, error, partial (default: success)
+
+State Logging Options:
+  --state-logging             Enable automatic state logging (default: true)
+  --runs-retention N          Number of run logs to keep in runs/ (default: 50)
 
 Examples:
   ralph                           # Run forever with defaults

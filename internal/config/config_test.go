@@ -12,8 +12,8 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
 	// Core options
-	if cfg.PromptFile != "./prompt.md" {
-		t.Errorf("PromptFile = %q, want %q", cfg.PromptFile, "./prompt.md")
+	if cfg.PromptFile != "./.agent/IMPLEMENTATION_PLAN.md" {
+		t.Errorf("PromptFile = %q, want %q", cfg.PromptFile, "./.agent/IMPLEMENTATION_PLAN.md")
 	}
 	if cfg.MaxIterations != 0 {
 		t.Errorf("MaxIterations = %d, want 0", cfg.MaxIterations)
@@ -310,7 +310,7 @@ pr:
 			yaml: ``,
 			validate: func(t *testing.T, cfg *Config) {
 				// All defaults should be preserved
-				if cfg.PromptFile != "./prompt.md" {
+				if cfg.PromptFile != "./.agent/IMPLEMENTATION_PLAN.md" {
 					t.Errorf("PromptFile = %q, want default", cfg.PromptFile)
 				}
 				if cfg.MaxIterations != 0 {
@@ -334,7 +334,7 @@ slack:
 					t.Error("SlackEnabled = false, want true")
 				}
 				// Defaults preserved
-				if cfg.PromptFile != "./prompt.md" {
+				if cfg.PromptFile != "./.agent/IMPLEMENTATION_PLAN.md" {
 					t.Errorf("PromptFile = %q, want default", cfg.PromptFile)
 				}
 				if cfg.OTELEnabled {

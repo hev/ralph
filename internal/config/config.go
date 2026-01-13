@@ -93,6 +93,10 @@ type Config struct {
 	// Test mode options
 	TestMode     bool   // Run in test mode (mock Claude, simulate todo progress)
 	TestScenario string // Test scenario: "success", "error", "partial"
+
+	// State logging options
+	StateLoggingEnabled bool // Enable automatic state logging (default: true)
+	RunsRetention       int  // Number of runs to keep in runs/ (default: 50)
 }
 
 // yamlConfig represents the YAML file structure
@@ -165,6 +169,11 @@ type yamlConfig struct {
 		Enabled  *bool  `yaml:"enabled"`
 		Scenario string `yaml:"scenario"`
 	} `yaml:"test_mode"`
+
+	StateLogging struct {
+		Enabled       *bool `yaml:"enabled"`
+		RunsRetention *int  `yaml:"runs_retention"`
+	} `yaml:"state_logging"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -173,7 +182,7 @@ func DefaultConfig() *Config {
 	projectName := filepath.Base(cwd)
 
 	return &Config{
-		PromptFile:    "./prompt.md",
+		PromptFile:    "./.agent/IMPLEMENTATION_PLAN.md",
 		MaxIterations: 0,
 		MaxTime:       0,
 		AgentDir:      "./.agent",
@@ -230,6 +239,9 @@ func DefaultConfig() *Config {
 
 		TestMode:     false,
 		TestScenario: "success",
+
+		StateLoggingEnabled: true,
+		RunsRetention:       50,
 	}
 }
 
@@ -269,27 +281,38 @@ func getEnvOrDefault(key, defaultVal string) string {
 // DefaultScratchpadPrompt is the default prompt appended to instructions
 const DefaultScratchpadPrompt = `Use the {{.AgentDir}} directory as a scratchpad for your work.
 
+## Directory Structure
+- {{.AgentDir}}/IMPLEMENTATION_PLAN.md - The main implementation plan (your input)
+- {{.AgentDir}}/TODO.md - Granular task checkboxes (update as you work)
+- {{.AgentDir}}/progress.md - Progress log (Ralph appends automatically on task completion)
+- {{.AgentDir}}/guardrails.md - Lessons learned / "Signs" (you can read and write)
+- {{.AgentDir}}/activity.log - Activity timing log (Ralph writes automatically)
+- {{.AgentDir}}/errors.log - Error log (Ralph writes automatically)
+- {{.AgentDir}}/runs/ - Historical run data (Ralph writes automatically)
+
 ## Task Tracking
 - Keep track of your current status in {{.AgentDir}}/TODO.md using checkboxes (- [ ] for pending, - [-] for in-progress, - [x] for done).
 - Check off items when completed. Only work on a single item at a time.
-- If a bug or new behavior comes up during implementation, add it to the todo list for tracking in the next iteration.
+- If a bug or new behavior comes up during implementation, add it to the todo list.
+
+## Guardrails (Lessons Learned)
+- Use {{.AgentDir}}/guardrails.md to record important lessons learned during implementation.
+- Check this file at the start of each session for context from previous runs.
+- Add notes about gotchas, workarounds, or important decisions.
 
 ## Starting a Session
-- If reviewing a fresh todo list: Read the whole plan (prompt.md) and determine if the ordering and dependencies make sense. If adjustments are needed, copy the original prompt.md to {{.AgentDir}}/prompt_original.md and revise prompt.md based on your determination.
-- If reviewing a completed plan: Test that the implementation is working to the original spec. Add ideas for improvements or bug fixes to the todo list if you find any.
+- Read the implementation plan ({{.AgentDir}}/IMPLEMENTATION_PLAN.md) and TODO.md to understand current state.
+- Check guardrails.md for any lessons from previous sessions.
+- If the plan needs adjustment, update it and note the reason.
 
 ## Testing
 - If the project has tests, always run them before and after making your changes.
 - Do not accept any regressions. Always add new tests for new functionality.
 
-## Artifact Management
-- Keep track of todo-item artifacts (scripts, notes, temp files) under {{.AgentDir}}/items/<item-name>/.
-- When done with a todo item, clean up scripts, plans, and any temporary assets for that item (remove the folder).
-
 ## Completing Work
-- Focus on doing one thing at a time and keeping context to only necessary information.
-- When done cleaning up after a todo item, commit your changes.
-- Before ending your session, review the plan and ensure any new todo items that came up are added. Make sure prompt.md is up to date and ready for the next agent.
+- Focus on doing one thing at a time.
+- When done with a todo item, commit your changes.
+- Before ending your session, ensure TODO.md is up to date for the next agent.
 - End your session when complete.`
 
 // ScratchpadInstructions returns the instructions appended to prompts
@@ -528,6 +551,14 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.TestMode.Scenario != "" {
 		c.TestScenario = yc.TestMode.Scenario
+	}
+
+	// State logging options
+	if yc.StateLogging.Enabled != nil {
+		c.StateLoggingEnabled = *yc.StateLogging.Enabled
+	}
+	if yc.StateLogging.RunsRetention != nil {
+		c.RunsRetention = *yc.StateLogging.RunsRetention
 	}
 
 	return nil

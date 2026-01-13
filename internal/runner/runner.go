@@ -19,6 +19,7 @@ import (
 	"github.com/hev/ralph/internal/metrics"
 	"github.com/hev/ralph/internal/ralph"
 	"github.com/hev/ralph/internal/slack"
+	"github.com/hev/ralph/internal/state"
 	"github.com/hev/ralph/internal/testmode"
 	"github.com/hev/ralph/internal/todo"
 	"github.com/hev/ralph/internal/worktree"
@@ -216,6 +217,19 @@ func Run(cfg *config.Config) error {
 		// Continue without metrics
 	}
 
+	// Initialize state manager
+	stateManager, err := state.NewManager(state.Config{
+		AgentDir:      cfg.AgentDir,
+		SessionID:     cfg.SessionID,
+		ProjectName:   cfg.ProjectName,
+		RunsRetention: cfg.RunsRetention,
+		Enabled:       cfg.StateLoggingEnabled,
+	})
+	if err != nil {
+		logError("Failed to initialize state manager: %v", err)
+		// Continue without state logging
+	}
+
 	// Initialize Slack notifier
 	notifier := slack.NewNotifier(slack.NotifierConfig{
 		Enabled:       cfg.SlackEnabled,
@@ -248,6 +262,16 @@ func Run(cfg *config.Config) error {
 			defer shutdownCancel()
 			tracker.Stop(shutdownCtx)
 		}()
+	}
+
+	// Start state logging session
+	if stateManager != nil {
+		stateManager.LogSessionStart()
+		// Record initial todos
+		todoPath := filepath.Join(cfg.AgentDir, "TODO.md")
+		if items, err := todo.ParseItems(todoPath); err == nil {
+			stateManager.SetInitialTodos(items)
+		}
 	}
 
 	// Send Slack session start notification
@@ -283,6 +307,9 @@ func Run(cfg *config.Config) error {
 	for {
 		select {
 		case <-ctx.Done():
+			if stateManager != nil {
+				stateManager.LogSessionEnd(exitReason, iteration, totalCommits)
+			}
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
 			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
 			cleanupWorktree(cfg, wtManager)
@@ -312,6 +339,9 @@ func Run(cfg *config.Config) error {
 		if tracker != nil {
 			tracker.BeforeIteration()
 		}
+		if stateManager != nil {
+			stateManager.LogIterationStart(iteration)
+		}
 		iterationStart := time.Now()
 
 		// Run claude with streaming output (or mock in test mode)
@@ -336,6 +366,16 @@ func Run(cfg *config.Config) error {
 			logError("Claude exited with error (code %d), continuing to next iteration...", exitCode)
 			if tracker != nil {
 				tracker.RecordError(ctx, "execution_error")
+			}
+			// Log error to state
+			if stateManager != nil {
+				currentTodo := ""
+				if tracker != nil {
+					if inProgress := tracker.GetNewlyInProgressTodos(); len(inProgress) > 0 {
+						currentTodo = inProgress[0].Item.Text
+					}
+				}
+				stateManager.LogError(iteration, exitCode, "main", currentTodo)
 			}
 		} else {
 			logSuccess("Iteration %d complete", iteration)
@@ -363,8 +403,8 @@ func Run(cfg *config.Config) error {
 			}
 
 			// Check for newly completed todos and send Slack notifications
+			newlyCompleted := tracker.GetNewlyCompletedTodos()
 			if notifier.IsEnabled() {
-				newlyCompleted := tracker.GetNewlyCompletedTodos()
 				counts, _ := tracker.GetTodoCounts()
 				for _, item := range newlyCompleted {
 					if err := notifier.TodoCompleted(ctx, item.Text, counts.Completed, counts.Total(), iteration, totalCommits, iterationDuration); err != nil {
@@ -373,8 +413,24 @@ func Run(cfg *config.Config) error {
 				}
 			}
 
+			// Log progress for completed todos
+			if stateManager != nil {
+				iterCommits := 0
+				if tracker != nil {
+					iterCommits = tracker.GetCommitsDelta()
+				}
+				for _, item := range newlyCompleted {
+					stateManager.LogProgress(item, iterationDuration, iterCommits)
+				}
+			}
+
 			// Update previous todos for next iteration comparison
 			tracker.UpdatePreviousTodos()
+		}
+
+		// Log iteration end to state
+		if stateManager != nil {
+			stateManager.LogIterationEnd(iteration, iterationDuration, exitCode, totalCommits)
 		}
 
 		// Check for stop-on-completion (works even without tracker)
@@ -398,6 +454,9 @@ func Run(cfg *config.Config) error {
 		// Sleep with context awareness
 		select {
 		case <-ctx.Done():
+			if stateManager != nil {
+				stateManager.LogSessionEnd(exitReason, iteration, totalCommits)
+			}
 			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
 			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
 			cleanupWorktree(cfg, wtManager)
@@ -429,6 +488,11 @@ func Run(cfg *config.Config) error {
 		if prErr != nil {
 			logError("PR creation failed: %v", prErr)
 		}
+	}
+
+	// Log session end to state
+	if stateManager != nil {
+		stateManager.LogSessionEnd(exitReason, iteration-1, totalCommits)
 	}
 
 	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
