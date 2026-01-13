@@ -22,6 +22,7 @@ import (
 	"github.com/hev/ralph/internal/state"
 	"github.com/hev/ralph/internal/testmode"
 	"github.com/hev/ralph/internal/todo"
+	"github.com/hev/ralph/internal/tui"
 	"github.com/hev/ralph/internal/worktree"
 )
 
@@ -174,6 +175,17 @@ func Run(cfg *config.Config) error {
 		fmt.Println("---")
 		return nil
 	}
+
+	// Initialize TUI
+	ui := tui.New(tui.WithBufferSize(cfg.TUIBufferSize))
+	if err := ui.Start(); err != nil {
+		logError("Failed to start TUI: %v", err)
+		// Continue without TUI - it will operate in passthrough mode
+	}
+	defer ui.Stop()
+
+	// Set initial phase
+	ui.SetPhase(tui.PhaseMainLoop)
 
 	// Test mode setup
 	var mockClaude *testmode.MockClaude
