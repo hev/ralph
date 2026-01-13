@@ -40,7 +40,7 @@ Add a hybrid terminal UI with scrollable log buffer, pinned status footer, and k
 - [x] Add --no-tui flag to disable terminal UI for debugging
 
 ## Phase 8: Testing & Verification
-- [ ] Run existing tests to ensure no regressions
+- [x] Run existing tests to ensure no regressions
 - [ ] Add TUI unit tests for buffer, state, and rendering
 - [ ] Manual test: basic rendering with simple prompt
 - [ ] Manual test: keyboard controls (space, arrows, j/k, g/G)
