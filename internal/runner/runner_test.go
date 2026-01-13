@@ -13,6 +13,7 @@ import (
 	"github.com/hev/ralph/internal/metrics"
 	"github.com/hev/ralph/internal/slack"
 	"github.com/hev/ralph/internal/todo"
+	"github.com/hev/ralph/internal/tui"
 )
 
 func TestGeneratePRTitle(t *testing.T) {
@@ -839,7 +840,7 @@ func TestRunCleanupPhase_WithPatterns(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	result := runCleanupPhase(ctx, cfg, notifier)
+	result := runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	// Should return empty string on success
 	if result != "" {
@@ -876,7 +877,7 @@ func TestRunCleanupPhase_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result := runCleanupPhase(ctx, cfg, notifier)
+	result := runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	// Should return interrupted message
 	if result != "interrupted during cleanup" {
@@ -891,7 +892,7 @@ func TestPrintSummary(t *testing.T) {
 	os.Stdout = w
 
 	startTime := time.Now().Add(-time.Hour)
-	printSummary(startTime, 10, "max iterations reached", 5, nil, "")
+	printSummary(startTime, 10, "max iterations reached", 5, nil, "", tui.New())
 
 	w.Close()
 	os.Stdout = old
@@ -921,7 +922,7 @@ func TestPrintSummary_WithPRURL(t *testing.T) {
 	os.Stdout = w
 
 	startTime := time.Now()
-	printSummary(startTime, 5, "all todos complete", 3, nil, "https://github.com/test/repo/pull/123")
+	printSummary(startTime, 5, "all todos complete", 3, nil, "https://github.com/test/repo/pull/123", tui.New())
 
 	w.Close()
 	os.Stdout = old
@@ -940,7 +941,7 @@ func TestCleanupWorktree_NilManager(t *testing.T) {
 	cfg := config.DefaultConfig()
 
 	// Should not panic with nil manager
-	cleanupWorktree(cfg, nil)
+	cleanupWorktree(cfg, nil, tui.New())
 }
 
 func TestRun_VerboseLogging(t *testing.T) {
@@ -1089,7 +1090,7 @@ func TestSendSessionEnd_DisabledNotifier(t *testing.T) {
 	startTime := time.Now()
 
 	// Should not panic with disabled notifier
-	sendSessionEnd(ctx, notifier, startTime, 5, "test", 3, nil)
+	sendSessionEnd(ctx, notifier, startTime, 5, "test", 3, nil, tui.New())
 }
 
 func TestRunClaude_ContextCancellation(t *testing.T) {
@@ -1216,7 +1217,7 @@ func TestRunCleanupPhase_DirectoriesNotRemoved(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	runCleanupPhase(ctx, cfg, notifier)
+	runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	// Directory should still exist (directories are skipped)
 	if _, err := os.Stat(subDir); os.IsNotExist(err) {
@@ -1241,7 +1242,7 @@ func TestRunCleanupPhase_InvalidPattern(t *testing.T) {
 	ctx := context.Background()
 
 	// Should not panic, just log error and continue
-	result := runCleanupPhase(ctx, cfg, notifier)
+	result := runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	// Should return empty string (not fail completely)
 	if result != "" {
@@ -1265,7 +1266,7 @@ func TestSendSessionEnd_EnabledNotifier(t *testing.T) {
 	os.Stderr = w
 
 	// Should attempt to send notification (will fail but tests the path)
-	sendSessionEnd(ctx, notifier, startTime, 5, "test reason", 3, nil)
+	sendSessionEnd(ctx, notifier, startTime, 5, "test reason", 3, nil, tui.New())
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -1312,7 +1313,7 @@ func TestRunCleanupPhase_VerboseMode(t *testing.T) {
 	os.Stdout = w
 
 	ctx := context.Background()
-	runCleanupPhase(ctx, cfg, notifier)
+	runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	w.Close()
 	os.Stdout = old
@@ -1367,7 +1368,7 @@ func TestRunCleanupPhase_FileRemovalError(t *testing.T) {
 	os.Stderr = w
 
 	ctx := context.Background()
-	runCleanupPhase(ctx, cfg, notifier)
+	runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -1410,7 +1411,7 @@ func TestRunCleanupPhase_NoFilesFound(t *testing.T) {
 	os.Stdout = w
 
 	ctx := context.Background()
-	runCleanupPhase(ctx, cfg, notifier)
+	runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	w.Close()
 	os.Stdout = old
@@ -1432,7 +1433,7 @@ func TestPrintSummary_AllOptions(t *testing.T) {
 	os.Stdout = w
 
 	startTime := time.Now().Add(-2 * time.Hour)
-	printSummary(startTime, 25, "user interrupted", 12, nil, "https://example.com/pr/42")
+	printSummary(startTime, 25, "user interrupted", 12, nil, "https://example.com/pr/42", tui.New())
 
 	w.Close()
 	os.Stdout = old
@@ -1539,7 +1540,7 @@ func TestRunCleanupPhase_MultiplePatterns(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	runCleanupPhase(ctx, cfg, notifier)
+	runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	// Verify .log and .tmp files are removed
 	if _, err := os.Stat(filepath.Join(tmpDir, "test1.log")); !os.IsNotExist(err) {
@@ -1626,7 +1627,7 @@ func TestRunCleanupPhase_EmptyFileList(t *testing.T) {
 	os.Stdout = w
 
 	ctx := context.Background()
-	result := runCleanupPhase(ctx, cfg, notifier)
+	result := runCleanupPhase(ctx, cfg, notifier, tui.New())
 
 	w.Close()
 	os.Stdout = old

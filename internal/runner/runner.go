@@ -57,9 +57,20 @@ func logSuccess(format string, args ...interface{}) {
 
 // Run executes the main ralph loop
 func Run(cfg *config.Config) error {
+	// Initialize TUI early for logging
+	ui := tui.New(tui.WithBufferSize(cfg.TUIBufferSize))
+	if err := ui.Start(); err != nil {
+		logError("Failed to start TUI: %v", err)
+		// Continue without TUI - it will operate in passthrough mode
+	}
+	defer ui.Stop()
+
+	// Set initial phase
+	ui.SetPhase(tui.PhaseMainLoop)
+
 	// Validate prompt file exists
 	if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
-		logError("Prompt file not found: %s", cfg.PromptFile)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Prompt file not found: %s", cfg.PromptFile))
 		return err
 	}
 
@@ -73,37 +84,41 @@ func Run(cfg *config.Config) error {
 		if branchName == "" && cfg.IssueNumber > 0 {
 			// Generate branch name from issue
 			branchName = worktree.BranchNameFromIssue(cfg.WorktreeBranchPrefix, cfg.IssueNumber, cfg.IssueTitle)
-			logVerbose(cfg, "Auto-generated branch from issue: %s", branchName)
+			if cfg.Verbose {
+				ui.WriteLineWarning(fmt.Sprintf("[ralph] Auto-generated branch from issue: %s", branchName))
+			}
 		}
 
-		log("Creating worktree...")
+		ui.WriteLineInfo("[ralph] Creating worktree...")
 		worktreePath, err := wtManager.Create(branchName)
 		if err != nil {
-			logError("Failed to create worktree: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to create worktree: %v", err))
 			return err
 		}
-		log("Worktree created at: %s", worktreePath)
-		log("Branch: %s", wtManager.GetBranchName())
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Worktree created at: %s", worktreePath))
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Branch: %s", wtManager.GetBranchName()))
 
 		// Copy prompt file to worktree
 		promptAbsPath, err := filepath.Abs(cfg.PromptFile)
 		if err != nil {
-			logError("Failed to get absolute path for prompt: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to get absolute path for prompt: %v", err))
 			wtManager.Remove()
 			return err
 		}
 		promptBasename := filepath.Base(cfg.PromptFile)
 		worktreePromptPath := filepath.Join(worktreePath, promptBasename)
 		if err := copyFile(promptAbsPath, worktreePromptPath); err != nil {
-			logError("Failed to copy prompt file to worktree: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to copy prompt file to worktree: %v", err))
 			wtManager.Remove()
 			return err
 		}
-		logVerbose(cfg, "Copied prompt file to worktree: %s", worktreePromptPath)
+		if cfg.Verbose {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Copied prompt file to worktree: %s", worktreePromptPath))
+		}
 
 		// Change to worktree directory
 		if err := os.Chdir(worktreePath); err != nil {
-			logError("Failed to change to worktree directory: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to change to worktree directory: %v", err))
 			wtManager.Remove()
 			return err
 		}
@@ -115,9 +130,9 @@ func Run(cfg *config.Config) error {
 
 	// Create agent directory if missing
 	if _, err := os.Stat(cfg.AgentDir); os.IsNotExist(err) {
-		log("Creating agent directory: %s", cfg.AgentDir)
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Creating agent directory: %s", cfg.AgentDir))
 		if err := os.MkdirAll(cfg.AgentDir, 0755); err != nil {
-			logError("Failed to create agent directory: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to create agent directory: %v", err))
 			if wtManager != nil {
 				wtManager.Remove()
 			}
@@ -128,71 +143,64 @@ func Run(cfg *config.Config) error {
 	// Load prompt
 	promptBytes, err := os.ReadFile(cfg.PromptFile)
 	if err != nil {
-		logError("Failed to read prompt file: %v", err)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Failed to read prompt file: %v", err))
 		return err
 	}
 	fullPrompt := string(promptBytes) + cfg.ScratchpadInstructions()
 
 	// Show configuration
-	log("Starting Ralph loop...")
-	logVerbose(cfg, "Prompt file: %s", cfg.PromptFile)
-	if cfg.MaxIterations > 0 {
-		logVerbose(cfg, "Max iterations: %d", cfg.MaxIterations)
-	} else {
-		logVerbose(cfg, "Max iterations: unlimited")
-	}
-	if cfg.MaxTime > 0 {
-		logVerbose(cfg, "Max time: %ds", cfg.MaxTime)
-	} else {
-		logVerbose(cfg, "Max time: unlimited")
-	}
-	logVerbose(cfg, "Agent dir: %s", cfg.AgentDir)
-	logVerbose(cfg, "Cooldown: %ds", cfg.Cooldown)
-	if cfg.Model != "" {
-		logVerbose(cfg, "Model: %s", cfg.Model)
-	}
-	if cfg.WorktreeEnabled && wtManager != nil {
-		logVerbose(cfg, "Worktree: %s", wtManager.GetWorktreePath())
-		logVerbose(cfg, "Branch: %s", wtManager.GetBranchName())
-	}
-	if cfg.OTELEnabled {
-		logVerbose(cfg, "OTEL endpoint: %s", cfg.OTELEndpoint)
-		logVerbose(cfg, "Session ID: %s", cfg.SessionID)
+	ui.WriteLineInfo("[ralph] Starting Ralph loop...")
+	if cfg.Verbose {
+		ui.WriteLineWarning(fmt.Sprintf("[ralph] Prompt file: %s", cfg.PromptFile))
+		if cfg.MaxIterations > 0 {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Max iterations: %d", cfg.MaxIterations))
+		} else {
+			ui.WriteLineWarning("[ralph] Max iterations: unlimited")
+		}
+		if cfg.MaxTime > 0 {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Max time: %ds", cfg.MaxTime))
+		} else {
+			ui.WriteLineWarning("[ralph] Max time: unlimited")
+		}
+		ui.WriteLineWarning(fmt.Sprintf("[ralph] Agent dir: %s", cfg.AgentDir))
+		ui.WriteLineWarning(fmt.Sprintf("[ralph] Cooldown: %ds", cfg.Cooldown))
+		if cfg.Model != "" {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Model: %s", cfg.Model))
+		}
+		if cfg.WorktreeEnabled && wtManager != nil {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Worktree: %s", wtManager.GetWorktreePath()))
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Branch: %s", wtManager.GetBranchName()))
+		}
+		if cfg.OTELEnabled {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] OTEL endpoint: %s", cfg.OTELEndpoint))
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Session ID: %s", cfg.SessionID))
+		}
 	}
 
 	// Dry run mode
 	if cfg.DryRun {
-		log("Dry run mode - would execute:")
+		ui.WriteLineInfo("[ralph] Dry run mode - would execute:")
 		if cfg.Model != "" {
-			fmt.Printf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"\n", cfg.Model)
+			ui.WriteLineDefault(fmt.Sprintf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"", cfg.Model))
 		} else {
-			fmt.Println("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
+			ui.WriteLineDefault("claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\"")
 		}
-		fmt.Println()
-		fmt.Println("Full prompt:")
-		fmt.Println("---")
-		fmt.Println(fullPrompt)
-		fmt.Println("---")
+		ui.WriteLineDefault("")
+		ui.WriteLineDefault("Full prompt:")
+		ui.WriteLineDefault("---")
+		ui.WriteLineDefault(fullPrompt)
+		ui.WriteLineDefault("---")
 		return nil
 	}
-
-	// Initialize TUI
-	ui := tui.New(tui.WithBufferSize(cfg.TUIBufferSize))
-	if err := ui.Start(); err != nil {
-		logError("Failed to start TUI: %v", err)
-		// Continue without TUI - it will operate in passthrough mode
-	}
-	defer ui.Stop()
-
-	// Set initial phase
-	ui.SetPhase(tui.PhaseMainLoop)
 
 	// Test mode setup
 	var mockClaude *testmode.MockClaude
 	if cfg.TestMode {
-		log("=== TEST MODE ENABLED ===")
-		log("Scenario: %s", cfg.TestScenario)
-		logVerbose(cfg, "Mock Claude will simulate todo progress")
+		ui.WriteLineInfo("[ralph] === TEST MODE ENABLED ===")
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Scenario: %s", cfg.TestScenario))
+		if cfg.Verbose {
+			ui.WriteLineWarning("[ralph] Mock Claude will simulate todo progress")
+		}
 
 		mockClaude = testmode.NewMockClaude(cfg.TestScenario, cfg.AgentDir)
 
@@ -216,16 +224,18 @@ func Run(cfg *config.Config) error {
 		cfg.SoundEnabled = true
 
 		// Demonstrate all log types in test mode
-		log("This is a standard log message")
-		logVerbose(cfg, "This is a verbose log message")
-		logError("This is an error log message (test only)")
-		logSuccess("This is a success log message")
+		ui.WriteLineInfo("[ralph] This is a standard log message")
+		if cfg.Verbose {
+			ui.WriteLineWarning("[ralph] This is a verbose log message")
+		}
+		ui.WriteLineError("[ralph] This is an error log message (test only)")
+		ui.WriteLineSuccess("[ralph] This is a success log message")
 	}
 
 	// Initialize metrics tracker
 	tracker, err := metrics.NewTracker(cfg)
 	if err != nil {
-		logError("Failed to initialize metrics: %v", err)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Failed to initialize metrics: %v", err))
 		// Continue without metrics
 	}
 
@@ -238,7 +248,7 @@ func Run(cfg *config.Config) error {
 		Enabled:       cfg.StateLoggingEnabled,
 	})
 	if err != nil {
-		logError("Failed to initialize state manager: %v", err)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Failed to initialize state manager: %v", err))
 		// Continue without state logging
 	}
 
@@ -257,8 +267,8 @@ func Run(cfg *config.Config) error {
 
 	// Initialize sound player
 	soundPlayer := ralph.NewSoundPlayer(cfg.GetSoundConfig())
-	if cfg.SoundEnabled {
-		logVerbose(cfg, "Ralph sounds enabled")
+	if cfg.SoundEnabled && cfg.Verbose {
+		ui.WriteLineWarning("[ralph] Ralph sounds enabled")
 	}
 
 	// Setup context with cancellation for graceful shutdown
@@ -288,15 +298,19 @@ func Run(cfg *config.Config) error {
 
 	// Send Slack session start notification
 	if notifier.IsEnabled() {
-		logVerbose(cfg, "Slack notifications enabled")
+		if cfg.Verbose {
+			ui.WriteLineWarning("[ralph] Slack notifications enabled")
+		}
 		if err := notifier.SessionStart(ctx); err != nil {
-			logError("Failed to send Slack session start: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send Slack session start: %v", err))
 		}
 	}
 
 	// Play session start sound
 	if err := soundPlayer.PlaySessionStart(); err != nil {
-		logVerbose(cfg, "Failed to play session start sound: %v", err)
+		if cfg.Verbose {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Failed to play session start sound: %v", err))
+		}
 	}
 
 	// Track state
@@ -322,9 +336,9 @@ func Run(cfg *config.Config) error {
 			if stateManager != nil {
 				stateManager.LogSessionEnd(exitReason, iteration, totalCommits)
 			}
-			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
-			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
-			cleanupWorktree(cfg, wtManager)
+			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker, ui)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "", ui)
+			cleanupWorktree(cfg, wtManager, ui)
 			return nil
 		default:
 		}
@@ -344,8 +358,8 @@ func Run(cfg *config.Config) error {
 			break
 		}
 
-		log("=== Iteration %d ===", iteration)
-		log("Running claude (this may take a moment)...")
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] === Iteration %d ===", iteration))
+		ui.WriteLineInfo("[ralph] Running claude (this may take a moment)...")
 
 		// Track iteration timing
 		if tracker != nil {
@@ -375,7 +389,7 @@ func Run(cfg *config.Config) error {
 				// Context was cancelled (signal received)
 				break
 			}
-			logError("Claude exited with error (code %d), continuing to next iteration...", exitCode)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Claude exited with error (code %d), continuing to next iteration...", exitCode))
 			if tracker != nil {
 				tracker.RecordError(ctx, "execution_error")
 			}
@@ -390,12 +404,14 @@ func Run(cfg *config.Config) error {
 				stateManager.LogError(iteration, exitCode, "main", currentTodo)
 			}
 		} else {
-			logSuccess("Iteration %d complete", iteration)
+			ui.WriteLineSuccess(fmt.Sprintf("[ralph] Iteration %d complete", iteration))
 		}
 
 		// Play Ralph Wiggum quote after each iteration
 		if err := soundPlayer.Play(); err != nil {
-			logVerbose(cfg, "Failed to play sound: %v", err)
+			if cfg.Verbose {
+				ui.WriteLineWarning(fmt.Sprintf("[ralph] Failed to play sound: %v", err))
+			}
 		}
 
 		// Record iteration metrics
@@ -409,7 +425,7 @@ func Run(cfg *config.Config) error {
 				counts, _ := tracker.GetTodoCounts()
 				for _, itemWithIdx := range newlyStarted {
 					if err := notifier.TodoStarted(ctx, itemWithIdx.Item.Text, itemWithIdx.Index, counts.Total(), iteration, counts.Completed); err != nil {
-						logError("Failed to send Slack todo started notification: %v", err)
+						ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send Slack todo started notification: %v", err))
 					}
 				}
 			}
@@ -420,7 +436,7 @@ func Run(cfg *config.Config) error {
 				counts, _ := tracker.GetTodoCounts()
 				for _, item := range newlyCompleted {
 					if err := notifier.TodoCompleted(ctx, item.Text, counts.Completed, counts.Total(), iteration, totalCommits, iterationDuration); err != nil {
-						logError("Failed to send Slack todo notification: %v", err)
+						ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send Slack todo notification: %v", err))
 					}
 				}
 			}
@@ -451,17 +467,21 @@ func Run(cfg *config.Config) error {
 			if counts, err := todo.ParseFile(todoPath); err == nil {
 				if counts.Pending == 0 && counts.Completed > 0 {
 					exitReason = "all todos complete"
-					log("All todos complete, stopping...")
+					ui.WriteLineInfo("[ralph] All todos complete, stopping...")
 					// Play todo list complete sound
 					if err := soundPlayer.PlayTodoComplete(); err != nil {
-						logVerbose(cfg, "Failed to play todo complete sound: %v", err)
+						if cfg.Verbose {
+							ui.WriteLineWarning(fmt.Sprintf("[ralph] Failed to play todo complete sound: %v", err))
+						}
 					}
 					break
 				}
 			}
 		}
 
-		logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
+		if cfg.Verbose {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Sleeping for %ds...", cfg.Cooldown))
+		}
 
 		// Sleep with context awareness
 		select {
@@ -469,9 +489,9 @@ func Run(cfg *config.Config) error {
 			if stateManager != nil {
 				stateManager.LogSessionEnd(exitReason, iteration, totalCommits)
 			}
-			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker)
-			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "")
-			cleanupWorktree(cfg, wtManager)
+			sendSessionEnd(ctx, notifier, startTime, iteration, exitReason, totalCommits, tracker, ui)
+			printSummary(startTime, iteration, exitReason, totalCommits, tracker, "", ui)
+			cleanupWorktree(cfg, wtManager, ui)
 			return nil
 		case <-time.After(time.Duration(cfg.Cooldown) * time.Second):
 		}
@@ -479,14 +499,14 @@ func Run(cfg *config.Config) error {
 
 	// Run code review phase if enabled and todos completed
 	if cfg.CodeReviewEnabled && exitReason == "all todos complete" {
-		reviewExitReason, reviewIters := runCodeReviewPhase(ctx, cfg, notifier, tracker, soundPlayer, mockClaude)
+		reviewExitReason, reviewIters := runCodeReviewPhase(ctx, cfg, notifier, tracker, soundPlayer, mockClaude, ui)
 		exitReason = reviewExitReason
 		iteration += reviewIters
 	}
 
 	// Run cleanup phase if enabled
 	if cfg.CleanupEnabled {
-		cleanupExitReason := runCleanupPhase(ctx, cfg, notifier)
+		cleanupExitReason := runCleanupPhase(ctx, cfg, notifier, ui)
 		if cleanupExitReason != "" {
 			exitReason = cleanupExitReason
 		}
@@ -496,9 +516,9 @@ func Run(cfg *config.Config) error {
 	var prURL string
 	if cfg.PREnabled {
 		var prErr error
-		prURL, prErr = runPRPhase(ctx, cfg, notifier, tracker)
+		prURL, prErr = runPRPhase(ctx, cfg, notifier, tracker, ui)
 		if prErr != nil {
-			logError("PR creation failed: %v", prErr)
+			ui.WriteLineError(fmt.Sprintf("[ralph] PR creation failed: %v", prErr))
 		}
 	}
 
@@ -507,16 +527,16 @@ func Run(cfg *config.Config) error {
 		stateManager.LogSessionEnd(exitReason, iteration-1, totalCommits)
 	}
 
-	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker)
-	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker, prURL)
-	cleanupWorktree(cfg, wtManager)
+	sendSessionEnd(ctx, notifier, startTime, iteration-1, exitReason, totalCommits, tracker, ui)
+	printSummary(startTime, iteration-1, exitReason, totalCommits, tracker, prURL, ui)
+	cleanupWorktree(cfg, wtManager, ui)
 	return nil
 }
 
 // runCodeReviewPhase runs the code review loop after todos are complete
 // Returns the exit reason and number of iterations
-func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, soundPlayer *ralph.SoundPlayer, mockClaude *testmode.MockClaude) (string, int) {
-	log("=== Starting Code Review Phase ===")
+func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, soundPlayer *ralph.SoundPlayer, mockClaude *testmode.MockClaude, ui *tui.TUI) (string, int) {
+	ui.WriteLineInfo("[ralph] === Starting Code Review Phase ===")
 
 	// Set mock to code review phase if in test mode
 	if mockClaude != nil {
@@ -530,7 +550,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 	todoPath := filepath.Join(cfg.AgentDir, "TODO.md")
 	if mockClaude == nil {
 		if err := os.WriteFile(todoPath, []byte("# Code Review\n\n## Issues Found\n\n"), 0644); err != nil {
-			logError("Failed to clear TODO file for code review: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to clear TODO file for code review: %v", err))
 			return "code review setup failed", 0
 		}
 	}
@@ -554,15 +574,15 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 
 		reviewIteration++
 		if cfg.CodeReviewMaxIterations == 0 {
-			log("=== Code Review Iteration %d (unlimited) ===", reviewIteration)
+			ui.WriteLineInfo(fmt.Sprintf("[ralph] === Code Review Iteration %d (unlimited) ===", reviewIteration))
 		} else {
-			log("=== Code Review Iteration %d of %d ===", reviewIteration, cfg.CodeReviewMaxIterations)
+			ui.WriteLineInfo(fmt.Sprintf("[ralph] === Code Review Iteration %d of %d ===", reviewIteration, cfg.CodeReviewMaxIterations))
 		}
 
 		// Send Slack notification for review iteration
 		if notifier.IsEnabled() {
 			if err := notifier.CodeReviewStarted(ctx, reviewIteration, cfg.CodeReviewMaxIterations); err != nil {
-				logError("Failed to send code review started notification: %v", err)
+				ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send code review started notification: %v", err))
 			}
 		}
 
@@ -596,18 +616,20 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 			if ctx.Err() != nil {
 				return "interrupted during code review", reviewIteration
 			}
-			logError("Claude exited with error (code %d) during code review", exitCode)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Claude exited with error (code %d) during code review", exitCode))
 			if tracker != nil {
 				tracker.RecordError(ctx, "code_review_error")
 			}
 		} else {
-			logSuccess("Code review iteration %d complete", reviewIteration)
+			ui.WriteLineSuccess(fmt.Sprintf("[ralph] Code review iteration %d complete", reviewIteration))
 		}
 
 		// Play Ralph Wiggum quote after each code review iteration
 		if soundPlayer != nil {
 			if err := soundPlayer.Play(); err != nil {
-				logVerbose(cfg, "Failed to play sound: %v", err)
+				if cfg.Verbose {
+					ui.WriteLineWarning(fmt.Sprintf("[ralph] Failed to play sound: %v", err))
+				}
 			}
 		}
 
@@ -626,11 +648,11 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 
 				// Check if all review issues are resolved
 				if counts.Pending == 0 && counts.Completed > 0 {
-					log("All code review issues resolved")
+					ui.WriteLineInfo("[ralph] All code review issues resolved")
 					if notifier.IsEnabled() {
 						reviewDuration := time.Since(reviewStartTime)
 						if err := notifier.CodeReviewComplete(ctx, reviewIteration, issuesFound, issuesFixed, reviewDuration); err != nil {
-							logError("Failed to send code review complete notification: %v", err)
+							ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send code review complete notification: %v", err))
 						}
 					}
 					return "code review complete", reviewIteration
@@ -638,11 +660,11 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 
 				// Check if review found no issues (indicated by a single completed item)
 				if counts.Pending == 0 && counts.Total() == 0 {
-					log("Code review found no issues")
+					ui.WriteLineInfo("[ralph] Code review found no issues")
 					if notifier.IsEnabled() {
 						reviewDuration := time.Since(reviewStartTime)
 						if err := notifier.CodeReviewComplete(ctx, reviewIteration, 0, 0, reviewDuration); err != nil {
-							logError("Failed to send code review complete notification: %v", err)
+							ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send code review complete notification: %v", err))
 						}
 					}
 					return "code review complete - no issues", reviewIteration
@@ -655,7 +677,9 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 
 		// Sleep between iterations
 		if cfg.CodeReviewMaxIterations == 0 || reviewIteration < cfg.CodeReviewMaxIterations {
-			logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
+			if cfg.Verbose {
+				ui.WriteLineWarning(fmt.Sprintf("[ralph] Sleeping for %ds...", cfg.Cooldown))
+			}
 			select {
 			case <-ctx.Done():
 				return "interrupted during code review", reviewIteration
@@ -666,11 +690,11 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 
 	// Only reached when max iterations is hit (not in unlimited mode)
 	if cfg.CodeReviewMaxIterations > 0 {
-		log("Code review max iterations reached")
+		ui.WriteLineInfo("[ralph] Code review max iterations reached")
 		if notifier.IsEnabled() {
 			reviewDuration := time.Since(reviewStartTime)
 			if err := notifier.CodeReviewComplete(ctx, reviewIteration, issuesFound, issuesFixed, reviewDuration); err != nil {
-				logError("Failed to send code review complete notification: %v", err)
+				ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send code review complete notification: %v", err))
 			}
 		}
 	}
@@ -680,15 +704,15 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 
 // runCleanupPhase removes artifacts based on configured patterns
 // Returns an exit reason if cleanup changes the session outcome
-func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier) string {
-	log("=== Starting Cleanup Phase ===")
+func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, ui *tui.TUI) string {
+	ui.WriteLineInfo("[ralph] === Starting Cleanup Phase ===")
 
 	cleanupStartTime := time.Now()
 
 	// Send Slack notification
 	if notifier.IsEnabled() {
 		if err := notifier.CleanupStarted(ctx, len(cfg.CleanupPatterns)); err != nil {
-			logError("Failed to send cleanup started notification: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send cleanup started notification: %v", err))
 		}
 	}
 
@@ -701,12 +725,14 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 		default:
 		}
 
-		logVerbose(cfg, "Scanning pattern: %s", pattern)
+		if cfg.Verbose {
+			ui.WriteLineWarning(fmt.Sprintf("[ralph] Scanning pattern: %s", pattern))
+		}
 
 		// Use doublestar for glob matching
 		matches, err := doublestar.FilepathGlob(pattern)
 		if err != nil {
-			logError("Failed to glob pattern %s: %v", pattern, err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to glob pattern %s: %v", pattern, err))
 			continue
 		}
 
@@ -720,9 +746,9 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 				continue
 			}
 
-			log("Removing: %s", match)
+			ui.WriteLineInfo(fmt.Sprintf("[ralph] Removing: %s", match))
 			if err := os.Remove(match); err != nil {
-				logError("Failed to remove %s: %v", match, err)
+				ui.WriteLineError(fmt.Sprintf("[ralph] Failed to remove %s: %v", match, err))
 			} else {
 				filesRemoved++
 			}
@@ -734,14 +760,14 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 	// Send completion notification
 	if notifier.IsEnabled() {
 		if err := notifier.CleanupComplete(ctx, filesRemoved, cleanupDuration); err != nil {
-			logError("Failed to send cleanup complete notification: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send cleanup complete notification: %v", err))
 		}
 	}
 
 	if filesRemoved > 0 {
-		logSuccess("Cleanup complete: removed %d file(s)", filesRemoved)
+		ui.WriteLineSuccess(fmt.Sprintf("[ralph] Cleanup complete: removed %d file(s)", filesRemoved))
 	} else {
-		logSuccess("Cleanup complete: no artifacts found")
+		ui.WriteLineSuccess("[ralph] Cleanup complete: no artifacts found")
 	}
 
 	return ""
@@ -749,20 +775,20 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 
 // runPRPhase creates a pull request for the changes made
 // Returns the PR URL if successful, or an error
-func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker) (string, error) {
-	log("=== Starting PR Creation Phase ===")
+func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, ui *tui.TUI) (string, error) {
+	ui.WriteLineInfo("[ralph] === Starting PR Creation Phase ===")
 
 	// Test mode: simulate PR creation
 	if cfg.TestMode {
-		log("Test mode: Simulating PR creation...")
+		ui.WriteLineInfo("[ralph] Test mode: Simulating PR creation...")
 		prURL := "https://github.com/test/repo/pull/999"
 		prTitle := "Test PR Title"
-		logSuccess("PR created (simulated): %s", prURL)
+		ui.WriteLineSuccess(fmt.Sprintf("[ralph] PR created (simulated): %s", prURL))
 
 		// Send Slack notification with simulated URL
 		if notifier.IsEnabled() {
 			if err := notifier.PRCreated(ctx, prURL, prTitle); err != nil {
-				logError("Failed to send Slack PR notification: %v", err)
+				ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send Slack PR notification: %v", err))
 			}
 		}
 
@@ -781,13 +807,13 @@ func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifie
 	}
 
 	if currentBranch == defaultBranch {
-		logError("Cannot create PR: currently on default branch (%s)", defaultBranch)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Cannot create PR: currently on default branch (%s)", defaultBranch))
 		return "", fmt.Errorf("cannot create PR from default branch")
 	}
 
 	// Push the branch if not already pushed
 	if !git.IsBranchPushed() {
-		log("Pushing branch %s to remote...", currentBranch)
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Pushing branch %s to remote...", currentBranch))
 		if err := git.PushBranch(); err != nil {
 			return "", fmt.Errorf("failed to push branch: %w", err)
 		}
@@ -808,7 +834,7 @@ func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifie
 	}
 
 	// Create the PR
-	log("Creating pull request...")
+	ui.WriteLineInfo("[ralph] Creating pull request...")
 	prConfig := git.PRConfig{
 		Title: title,
 		Base:  baseBranch,
@@ -820,12 +846,12 @@ func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifie
 		return "", err
 	}
 
-	logSuccess("PR created: %s", result.URL)
+	ui.WriteLineSuccess(fmt.Sprintf("[ralph] PR created: %s", result.URL))
 
 	// Send Slack notification
 	if notifier.IsEnabled() {
 		if err := notifier.PRCreated(ctx, result.URL, title); err != nil {
-			logError("Failed to send Slack PR notification: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send Slack PR notification: %v", err))
 		}
 	}
 
@@ -896,7 +922,7 @@ func generatePRBody(cfg *config.Config, tracker *metrics.Tracker, baseBranch str
 	return body.String()
 }
 
-func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker) {
+func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, ui *tui.TUI) {
 	if !notifier.IsEnabled() {
 		return
 	}
@@ -917,7 +943,7 @@ func sendSessionEnd(ctx context.Context, notifier *slack.Notifier, startTime tim
 	}
 
 	if err := notifier.SessionEnd(ctx, summary); err != nil {
-		logError("Failed to send Slack session end: %v", err)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Failed to send Slack session end: %v", err))
 	}
 }
 
@@ -940,25 +966,25 @@ func runClaude(ctx context.Context, prompt string, model string) (int, error) {
 	return client.Wait()
 }
 
-func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, prURL string) {
+func printSummary(startTime time.Time, iterations int, exitReason string, commits int, tracker *metrics.Tracker, prURL string, ui *tui.TUI) {
 	elapsed := time.Since(startTime)
-	fmt.Println()
-	logSuccess("=== Ralph Summary ===")
-	logSuccess("Iterations completed: %d", iterations)
-	logSuccess("Total time: %.0fs", elapsed.Seconds())
-	logSuccess("Exit reason: %s", exitReason)
-	logSuccess("Commits made: %d", commits)
+	ui.WriteLineDefault("")
+	ui.WriteLineSuccess("[ralph] === Ralph Summary ===")
+	ui.WriteLineSuccess(fmt.Sprintf("[ralph] Iterations completed: %d", iterations))
+	ui.WriteLineSuccess(fmt.Sprintf("[ralph] Total time: %.0fs", elapsed.Seconds()))
+	ui.WriteLineSuccess(fmt.Sprintf("[ralph] Exit reason: %s", exitReason))
+	ui.WriteLineSuccess(fmt.Sprintf("[ralph] Commits made: %d", commits))
 
 	// Show todo status if available
 	if tracker != nil {
 		if counts, err := tracker.GetTodoCounts(); err == nil && counts.Total() > 0 {
-			logSuccess("Todos: %d/%d complete (%.0f%%)", counts.Completed, counts.Total(), counts.CompletionRate())
+			ui.WriteLineSuccess(fmt.Sprintf("[ralph] Todos: %d/%d complete (%.0f%%)", counts.Completed, counts.Total(), counts.CompletionRate()))
 		}
 	}
 
 	// Show PR URL if created
 	if prURL != "" {
-		logSuccess("PR created: %s", prURL)
+		ui.WriteLineSuccess(fmt.Sprintf("[ralph] PR created: %s", prURL))
 	}
 }
 
@@ -981,29 +1007,29 @@ func copyFile(src, dst string) error {
 }
 
 // cleanupWorktree pushes the branch and removes the worktree if cleanup is enabled
-func cleanupWorktree(cfg *config.Config, wtManager *worktree.Manager) {
+func cleanupWorktree(cfg *config.Config, wtManager *worktree.Manager, ui *tui.TUI) {
 	if wtManager == nil {
 		return
 	}
 
 	// Push branch to remote before cleanup
-	log("Pushing branch %s to remote...", wtManager.GetBranchName())
+	ui.WriteLineInfo(fmt.Sprintf("[ralph] Pushing branch %s to remote...", wtManager.GetBranchName()))
 	if err := wtManager.Push(); err != nil {
-		logError("Failed to push branch: %v", err)
+		ui.WriteLineError(fmt.Sprintf("[ralph] Failed to push branch: %v", err))
 		// Continue with cleanup even if push fails
 	} else {
-		logSuccess("Branch pushed successfully")
+		ui.WriteLineSuccess("[ralph] Branch pushed successfully")
 	}
 
 	// Cleanup worktree if enabled
 	if cfg.WorktreeCleanup {
-		log("Cleaning up worktree...")
+		ui.WriteLineInfo("[ralph] Cleaning up worktree...")
 		if err := wtManager.Remove(); err != nil {
-			logError("Failed to remove worktree: %v", err)
+			ui.WriteLineError(fmt.Sprintf("[ralph] Failed to remove worktree: %v", err))
 		} else {
-			logSuccess("Worktree removed")
+			ui.WriteLineSuccess("[ralph] Worktree removed")
 		}
 	} else {
-		log("Keeping worktree at: %s", wtManager.GetWorktreePath())
+		ui.WriteLineInfo(fmt.Sprintf("[ralph] Keeping worktree at: %s", wtManager.GetWorktreePath()))
 	}
 }
