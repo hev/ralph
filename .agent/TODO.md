@@ -41,7 +41,9 @@ Add a hybrid terminal UI with scrollable log buffer, pinned status footer, and k
 
 ## Phase 8: Testing & Verification
 - [x] Run existing tests to ensure no regressions
-- [ ] Add TUI unit tests for buffer, state, and rendering
+- [x] Add TUI unit tests for buffer
+- [x] Add TUI unit tests for state
+- [x] Add TUI unit tests for rendering
 - [ ] Manual test: basic rendering with simple prompt
 - [ ] Manual test: keyboard controls (space, arrows, j/k, g/G)
 - [ ] Manual test: phase transitions with --code-review flag
