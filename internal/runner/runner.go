@@ -536,6 +536,7 @@ func Run(cfg *config.Config) error {
 // runCodeReviewPhase runs the code review loop after todos are complete
 // Returns the exit reason and number of iterations
 func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, soundPlayer *ralph.SoundPlayer, mockClaude *testmode.MockClaude, ui *tui.TUI) (string, int) {
+	ui.SetPhase(tui.PhaseCodeReview)
 	ui.WriteLineInfo("[ralph] === Starting Code Review Phase ===")
 
 	// Set mock to code review phase if in test mode
@@ -705,6 +706,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 // runCleanupPhase removes artifacts based on configured patterns
 // Returns an exit reason if cleanup changes the session outcome
 func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, ui *tui.TUI) string {
+	ui.SetPhase(tui.PhaseCleanup)
 	ui.WriteLineInfo("[ralph] === Starting Cleanup Phase ===")
 
 	cleanupStartTime := time.Now()
@@ -776,6 +778,7 @@ func runCleanupPhase(ctx context.Context, cfg *config.Config, notifier *slack.No
 // runPRPhase creates a pull request for the changes made
 // Returns the PR URL if successful, or an error
 func runPRPhase(ctx context.Context, cfg *config.Config, notifier *slack.Notifier, tracker *metrics.Tracker, ui *tui.TUI) (string, error) {
+	ui.SetPhase(tui.PhasePR)
 	ui.WriteLineInfo("[ralph] === Starting PR Creation Phase ===")
 
 	// Test mode: simulate PR creation
