@@ -32,7 +32,7 @@ func TestMockClaude_SuccessScenario(t *testing.T) {
 	ctx := context.Background()
 
 	// Run through all iterations
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 3; i++ {
 		exitCode, err := mock.RunIteration(ctx)
 		if err != nil {
 			t.Errorf("Iteration %d failed: %v", i, err)
@@ -55,7 +55,7 @@ func TestMockClaude_SuccessScenario(t *testing.T) {
 
 	// Verify all todos complete
 	if !mock.AllTodosComplete() {
-		t.Error("expected AllTodosComplete to return true after 5 iterations")
+		t.Error("expected AllTodosComplete to return true after 3 iterations")
 	}
 }
 
@@ -155,28 +155,34 @@ func TestMockClaude_TodoContent(t *testing.T) {
 	mock := NewMockClaude("success", tmpDir)
 	ctx := context.Background()
 
-	// Iteration 1: All pending
+	// Iteration 1: First in progress, second pending
 	mock.RunIteration(ctx)
 	content := readTodoFile(t, tmpDir)
-	if !strings.Contains(content, "- [ ] Implement feature A") {
-		t.Error("Iteration 1: expected pending todo for 'Implement feature A'")
+	if !strings.Contains(content, "- [-] Implement feature A") {
+		t.Error("Iteration 1: expected in-progress todo for 'Implement feature A'")
+	}
+	if !strings.Contains(content, "- [ ] Add tests for feature A") {
+		t.Error("Iteration 1: expected pending todo for 'Add tests for feature A'")
 	}
 
-	// Iteration 2: First in progress
+	// Iteration 2: First complete, second in progress
 	mock.RunIteration(ctx)
 	content = readTodoFile(t, tmpDir)
-	if !strings.Contains(content, "- [-] Implement feature A") {
-		t.Error("Iteration 2: expected in-progress todo for 'Implement feature A'")
+	if !strings.Contains(content, "- [x] Implement feature A") {
+		t.Error("Iteration 2: expected completed todo for 'Implement feature A'")
+	}
+	if !strings.Contains(content, "- [-] Add tests for feature A") {
+		t.Error("Iteration 2: expected in-progress todo for 'Add tests for feature A'")
 	}
 
-	// Iteration 3: First complete, second in progress
+	// Iteration 3: All complete
 	mock.RunIteration(ctx)
 	content = readTodoFile(t, tmpDir)
 	if !strings.Contains(content, "- [x] Implement feature A") {
 		t.Error("Iteration 3: expected completed todo for 'Implement feature A'")
 	}
-	if !strings.Contains(content, "- [-] Add tests for feature A") {
-		t.Error("Iteration 3: expected in-progress todo for 'Add tests for feature A'")
+	if !strings.Contains(content, "- [x] Add tests for feature A") {
+		t.Error("Iteration 3: expected completed todo for 'Add tests for feature A'")
 	}
 }
 

@@ -100,46 +100,28 @@ func (m *MockClaude) getMainPhaseTodos() string {
 	case 1:
 		return `# Tasks
 
-- [ ] Implement feature A
-- [ ] Add tests for feature A
-- [ ] Update documentation
-`
-	case 2:
-		return `# Tasks
-
 - [-] Implement feature A
 - [ ] Add tests for feature A
-- [ ] Update documentation
 `
-	case 3:
-		return `# Tasks
-
-- [x] Implement feature A
-- [-] Add tests for feature A
-- [ ] Update documentation
-`
-	case 4:
+	case 2:
 		if m.scenario == ScenarioPartial {
 			// Partial scenario: max iterations hit before completion
 			return `# Tasks
 
 - [x] Implement feature A
-- [x] Add tests for feature A
-- [ ] Update documentation
+- [ ] Add tests for feature A
 `
 		}
 		return `# Tasks
 
 - [x] Implement feature A
-- [x] Add tests for feature A
-- [-] Update documentation
+- [-] Add tests for feature A
 `
-	default: // 5+
+	default: // 3+
 		return `# Tasks
 
 - [x] Implement feature A
 - [x] Add tests for feature A
-- [x] Update documentation
 `
 	}
 }
@@ -200,7 +182,7 @@ func (m *MockClaude) AllTodosComplete() bool {
 		if m.scenario == ScenarioPartial {
 			return false // Partial never completes
 		}
-		return m.iteration >= 5
+		return m.iteration >= 3
 	}
 	if m.phase == "code_review" {
 		return m.iteration >= 3

@@ -53,19 +53,6 @@ func init() {
 	rootCmd.Flags().BoolVar(&cfg.DryRun, "dry-run", cfg.DryRun, "Show what would run without executing")
 	rootCmd.Flags().StringVar(&cfg.Model, "model", cfg.Model, "Model to use (e.g., sonnet, opus, haiku)")
 
-	// OTEL options
-	rootCmd.Flags().BoolVar(&cfg.OTELEnabled, "otel-enabled", cfg.OTELEnabled, "Enable metrics export")
-	rootCmd.Flags().StringVar(&cfg.OTELEndpoint, "otel-endpoint", cfg.OTELEndpoint, "OTLP endpoint")
-	rootCmd.Flags().StringVar(&cfg.MetricsPrefix, "metrics-prefix", cfg.MetricsPrefix, "Metric name prefix")
-	rootCmd.Flags().StringVar(&cfg.ProjectName, "project-name", cfg.ProjectName, "Override project label")
-
-	// Slack options
-	rootCmd.Flags().BoolVar(&cfg.SlackEnabled, "slack-enabled", cfg.SlackEnabled, "Enable Slack notifications")
-	rootCmd.Flags().StringVar(&cfg.SlackWebhookURL, "slack-webhook-url", cfg.SlackWebhookURL, "Slack webhook URL")
-	rootCmd.Flags().StringVar(&cfg.SlackChannel, "slack-channel", cfg.SlackChannel, "Slack channel ID")
-	rootCmd.Flags().StringVar(&cfg.SlackNotifyUsers, "slack-notify-users", cfg.SlackNotifyUsers, "Comma-separated Slack user IDs to @mention on completion")
-	rootCmd.Flags().StringVar(&cfg.SlackBotToken, "slack-bot-token", cfg.SlackBotToken, "Slack bot token for thread replies")
-
 	// Behavior options
 	rootCmd.Flags().BoolVarP(&cfg.StopOnCompletion, "stop-on-completion", "s", cfg.StopOnCompletion, "Exit when all todos are complete")
 
@@ -125,24 +112,6 @@ func init() {
 				savedValues["dry-run"] = cfg.DryRun
 			case "model":
 				savedValues["model"] = cfg.Model
-			case "otel-enabled":
-				savedValues["otel-enabled"] = cfg.OTELEnabled
-			case "otel-endpoint":
-				savedValues["otel-endpoint"] = cfg.OTELEndpoint
-			case "metrics-prefix":
-				savedValues["metrics-prefix"] = cfg.MetricsPrefix
-			case "project-name":
-				savedValues["project-name"] = cfg.ProjectName
-			case "slack-enabled":
-				savedValues["slack-enabled"] = cfg.SlackEnabled
-			case "slack-webhook-url":
-				savedValues["slack-webhook-url"] = cfg.SlackWebhookURL
-			case "slack-channel":
-				savedValues["slack-channel"] = cfg.SlackChannel
-			case "slack-notify-users":
-				savedValues["slack-notify-users"] = cfg.SlackNotifyUsers
-			case "slack-bot-token":
-				savedValues["slack-bot-token"] = cfg.SlackBotToken
 			case "stop-on-completion":
 				savedValues["stop-on-completion"] = cfg.StopOnCompletion
 			case "code-review":
@@ -218,24 +187,6 @@ func init() {
 				cfg.DryRun = val.(bool)
 			case "model":
 				cfg.Model = val.(string)
-			case "otel-enabled":
-				cfg.OTELEnabled = val.(bool)
-			case "otel-endpoint":
-				cfg.OTELEndpoint = val.(string)
-			case "metrics-prefix":
-				cfg.MetricsPrefix = val.(string)
-			case "project-name":
-				cfg.ProjectName = val.(string)
-			case "slack-enabled":
-				cfg.SlackEnabled = val.(bool)
-			case "slack-webhook-url":
-				cfg.SlackWebhookURL = val.(string)
-			case "slack-channel":
-				cfg.SlackChannel = val.(string)
-			case "slack-notify-users":
-				cfg.SlackNotifyUsers = val.(string)
-			case "slack-bot-token":
-				cfg.SlackBotToken = val.(string)
 			case "stop-on-completion":
 				cfg.StopOnCompletion = val.(bool)
 			case "code-review":
@@ -272,6 +223,14 @@ func init() {
 				cfg.TestMode = val.(bool)
 			case "test-scenario":
 				cfg.TestScenario = val.(string)
+			}
+		}
+
+		// Apply stop-on-completion default for code review max iterations
+		// Priority: explicit flag > stop-on-completion default > config default (0/unlimited)
+		if _, explicitlySet := savedValues["code-review-max-iterations"]; !explicitlySet {
+			if cfg.StopOnCompletion && cfg.CodeReviewMaxIterations == 0 {
+				cfg.CodeReviewMaxIterations = 1
 			}
 		}
 
@@ -339,25 +298,12 @@ Options:
   --config FILE               Path to config file (default: ./ralph.yaml)
   --model MODEL               Model to use (e.g., sonnet, opus, haiku)
 
-OTEL Options:
-  --otel-enabled              Enable metrics export (default: false)
-  --otel-endpoint URL         OTLP endpoint (default: localhost:4317)
-  --metrics-prefix PREFIX     Metric name prefix (default: ralph)
-  --project-name NAME         Override project label (default: cwd basename)
-
-Slack Options:
-  --slack-enabled             Enable Slack notifications (default: false)
-  --slack-webhook-url URL     Slack webhook URL (or RALPH_SLACK_WEBHOOK_URL env)
-  --slack-channel ID          Slack channel ID (or RALPH_SLACK_CHANNEL env)
-  --slack-notify-users IDS    Comma-separated user IDs to @mention (or RALPH_SLACK_NOTIFY_USERS env)
-  --slack-bot-token TOKEN     Bot token for thread replies (or RALPH_SLACK_BOT_TOKEN env)
-
 Behavior Options:
   -s, --stop-on-completion    Exit when all todos are complete (default: false)
 
 Code Review Options:
   --code-review               Run code review phase after todos complete (default: false)
-  --code-review-max-iterations N  Max iterations for code review phase (default: 3)
+  --code-review-max-iterations N  Max iterations for code review phase (default: 0=unlimited, 1 with -s)
   --code-review-prompt TEXT   Custom prompt for code review phase
   --code-review-model MODEL   Model for code review phase (defaults to --model)
 
@@ -409,7 +355,9 @@ Examples:
   ralph -i 42 -w --pr              # Full workflow: issue -> worktree -> PR
   ralph --sound                     # Play Ralph Wiggum quotes after each iteration
   ralph --test-mode                  # Run in test mode (mock Claude)
-  ralph --test-mode --slack-enabled  # Test mode with Slack notifications
+
+OTEL and Slack notifications are configured via config file or environment variables.
+See: https://github.com/hev/ralph#configuration
 
 "I'm in danger!" - Ralph Wiggum
 `, config.Version))

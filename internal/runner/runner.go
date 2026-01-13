@@ -20,6 +20,7 @@ import (
 	"github.com/hev/ralph/internal/ralph"
 	"github.com/hev/ralph/internal/slack"
 	"github.com/hev/ralph/internal/testmode"
+	"github.com/hev/ralph/internal/todo"
 	"github.com/hev/ralph/internal/worktree"
 )
 
@@ -184,7 +185,10 @@ func Run(cfg *config.Config) error {
 
 		// Set reasonable defaults for test mode
 		if cfg.MaxIterations == 0 {
-			cfg.MaxIterations = 5 // Default test iterations
+			cfg.MaxIterations = 3 // Default test iterations
+		}
+		if cfg.Cooldown == 0 {
+			cfg.Cooldown = 2 // Default cooldown to prevent sound overlap
 		}
 
 		// Enable all phases for success scenario to exercise full flow
@@ -252,6 +256,11 @@ func Run(cfg *config.Config) error {
 		if err := notifier.SessionStart(ctx); err != nil {
 			logError("Failed to send Slack session start: %v", err)
 		}
+	}
+
+	// Play session start sound
+	if err := soundPlayer.PlaySessionStart(); err != nil {
+		logVerbose(cfg, "Failed to play session start sound: %v", err)
 	}
 
 	// Track state
@@ -366,15 +375,20 @@ func Run(cfg *config.Config) error {
 
 			// Update previous todos for next iteration comparison
 			tracker.UpdatePreviousTodos()
+		}
 
-			// Check for stop-on-completion
-			if cfg.StopOnCompletion {
-				if counts, err := tracker.GetTodoCounts(); err == nil {
-					if counts.Pending == 0 && counts.Completed > 0 {
-						exitReason = "all todos complete"
-						log("All todos complete, stopping...")
-						break
+		// Check for stop-on-completion (works even without tracker)
+		if cfg.StopOnCompletion {
+			todoPath := filepath.Join(cfg.AgentDir, "TODO.md")
+			if counts, err := todo.ParseFile(todoPath); err == nil {
+				if counts.Pending == 0 && counts.Completed > 0 {
+					exitReason = "all todos complete"
+					log("All todos complete, stopping...")
+					// Play todo list complete sound
+					if err := soundPlayer.PlayTodoComplete(); err != nil {
+						logVerbose(cfg, "Failed to play todo complete sound: %v", err)
 					}
+					break
 				}
 			}
 		}
@@ -455,7 +469,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 	issuesFound := 0
 	issuesFixed := 0
 
-	for reviewIteration < cfg.CodeReviewMaxIterations {
+	for cfg.CodeReviewMaxIterations == 0 || reviewIteration < cfg.CodeReviewMaxIterations {
 		select {
 		case <-ctx.Done():
 			return "interrupted during code review", reviewIteration
@@ -463,7 +477,11 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		}
 
 		reviewIteration++
-		log("=== Code Review Iteration %d of %d ===", reviewIteration, cfg.CodeReviewMaxIterations)
+		if cfg.CodeReviewMaxIterations == 0 {
+			log("=== Code Review Iteration %d (unlimited) ===", reviewIteration)
+		} else {
+			log("=== Code Review Iteration %d of %d ===", reviewIteration, cfg.CodeReviewMaxIterations)
+		}
 
 		// Send Slack notification for review iteration
 		if notifier.IsEnabled() {
@@ -560,7 +578,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		}
 
 		// Sleep between iterations
-		if reviewIteration < cfg.CodeReviewMaxIterations {
+		if cfg.CodeReviewMaxIterations == 0 || reviewIteration < cfg.CodeReviewMaxIterations {
 			logVerbose(cfg, "Sleeping for %ds...", cfg.Cooldown)
 			select {
 			case <-ctx.Done():
@@ -570,11 +588,14 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		}
 	}
 
-	log("Code review max iterations reached")
-	if notifier.IsEnabled() {
-		reviewDuration := time.Since(reviewStartTime)
-		if err := notifier.CodeReviewComplete(ctx, reviewIteration, issuesFound, issuesFixed, reviewDuration); err != nil {
-			logError("Failed to send code review complete notification: %v", err)
+	// Only reached when max iterations is hit (not in unlimited mode)
+	if cfg.CodeReviewMaxIterations > 0 {
+		log("Code review max iterations reached")
+		if notifier.IsEnabled() {
+			reviewDuration := time.Since(reviewStartTime)
+			if err := notifier.CodeReviewComplete(ctx, reviewIteration, issuesFound, issuesFixed, reviewDuration); err != nil {
+				logError("Failed to send code review complete notification: %v", err)
+			}
 		}
 	}
 

@@ -54,8 +54,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.CodeReviewEnabled {
 		t.Error("CodeReviewEnabled = true, want false")
 	}
-	if cfg.CodeReviewMaxIterations != 3 {
-		t.Errorf("CodeReviewMaxIterations = %d, want 3", cfg.CodeReviewMaxIterations)
+	if cfg.CodeReviewMaxIterations != 0 {
+		t.Errorf("CodeReviewMaxIterations = %d, want 0 (unlimited)", cfg.CodeReviewMaxIterations)
 	}
 
 	// Cleanup options
