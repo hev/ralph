@@ -337,6 +337,11 @@ func (t *TUI) AddTokens(tokens int) {
 	t.state.AddTokens(tokens)
 }
 
+// SetModel updates the model name shown in the footer
+func (t *TUI) SetModel(model string) {
+	t.state.SetModel(model)
+}
+
 // SetMaxTokens sets the maximum token limit
 func (t *TUI) SetMaxTokens(max int) {
 	used, _ := t.state.Tokens()
