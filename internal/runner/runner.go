@@ -354,6 +354,9 @@ func Run(cfg *config.Config) error {
 
 		iteration++
 
+		// Reset context tokens for this iteration
+		ui.SetTokens(0, getModelContextSize(cfg.Model))
+
 		// Check iteration limit
 		if cfg.MaxIterations > 0 && iteration > cfg.MaxIterations {
 			exitReason = "max iterations reached"
@@ -591,6 +594,15 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		}
 
 		reviewIteration++
+
+		// Reset context tokens for this iteration
+		// Use code review model if specified, otherwise fall back to main model
+		reviewModel := cfg.CodeReviewModel
+		if reviewModel == "" {
+			reviewModel = cfg.Model
+		}
+		ui.SetTokens(0, getModelContextSize(reviewModel))
+
 		if cfg.CodeReviewMaxIterations == 0 {
 			ui.WriteLineInfo(fmt.Sprintf("[ralph] === Code Review Iteration %d (unlimited) ===", reviewIteration))
 		} else {
@@ -611,11 +623,6 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		iterationStart := time.Now()
 
 		// Run provider with review prompt (or mock in test mode)
-		// Use code review model if specified, otherwise fall back to main model
-		model := cfg.CodeReviewModel
-		if model == "" {
-			model = cfg.Model
-		}
 		var exitCode int
 		var err error
 		if mockClaude != nil {
@@ -628,7 +635,7 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 				updateTokenUsage(ui, line)
 			}
 		} else {
-			exitCode, err = runProvider(ctx, provider, reviewPrompt, model, ui)
+			exitCode, err = runProvider(ctx, provider, reviewPrompt, reviewModel, ui)
 		}
 		iterationDuration := time.Since(iterationStart)
 		hadError := err != nil
@@ -1066,6 +1073,17 @@ func formatProviderCommand(provider string, model string) string {
 			return fmt.Sprintf("claude --dangerously-skip-permissions --print --model %s -p \"$FULL_PROMPT\"", model)
 		}
 		return "claude --dangerously-skip-permissions --print -p \"$FULL_PROMPT\""
+	}
+}
+
+// getModelContextSize returns the context window size for a given model.
+// Claude models (haiku, sonnet, opus) all have 200k context windows.
+func getModelContextSize(model string) int {
+	switch strings.ToLower(model) {
+	case "haiku", "sonnet", "opus":
+		return 200000
+	default:
+		return 200000 // Default context window
 	}
 }
 
