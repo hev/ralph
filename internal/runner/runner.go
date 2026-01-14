@@ -357,6 +357,11 @@ func Run(cfg *config.Config) error {
 		// Reset context tokens for this iteration
 		ui.SetTokens(0, getModelContextSize(cfg.Model))
 
+		// Update todo counts at iteration start
+		if counts, err := todo.ParseFile(filepath.Join(cfg.AgentDir, "TODO.md")); err == nil {
+			ui.SetTodos(counts.Completed, counts.Total())
+		}
+
 		// Check iteration limit
 		if cfg.MaxIterations > 0 && iteration > cfg.MaxIterations {
 			exitReason = "max iterations reached"
