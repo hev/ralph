@@ -1,7 +1,7 @@
 # TUI Issues TODO
 
 - [x] Add `ParseAndPrintToTUI` to `internal/claude/parser.go`
-- [ ] Add `ParseAndPrintToTUI` to `internal/codex/parser.go`
+- [x] Add `ParseAndPrintTo` to `internal/codex/parser.go`
 - [ ] Add `Model` field and `SetModel` to TUI state
 - [ ] Update renderer to display model alongside phase
 - [ ] Add `SetModel` method to TUI
