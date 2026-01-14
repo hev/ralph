@@ -70,8 +70,9 @@ func Run(cfg *config.Config) error {
 	}
 	defer ui.Stop()
 
-	// Set initial phase
+	// Set initial phase and model
 	ui.SetPhase(tui.PhaseMainLoop)
+	ui.SetModel(cfg.Model)
 
 	// Validate prompt file exists
 	if _, err := os.Stat(cfg.PromptFile); os.IsNotExist(err) {
