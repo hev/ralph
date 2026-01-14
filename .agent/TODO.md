@@ -2,7 +2,7 @@
 
 - [x] Add `ParseAndPrintToTUI` to `internal/claude/parser.go`
 - [x] Add `ParseAndPrintTo` to `internal/codex/parser.go`
-- [ ] Add `Model` field and `SetModel` to TUI state
+- [x] Add `Model` field and `SetModel` to TUI state
 - [ ] Update renderer to display model alongside phase
 - [ ] Add `SetModel` method to TUI
 - [ ] Update runner to route output through TUI

@@ -49,6 +49,9 @@ type UIState struct {
 
 	// UI state
 	paused bool
+
+	// Model information
+	model string
 }
 
 // NewUIState creates a new UIState with default values
@@ -160,6 +163,20 @@ func (s *UIState) TogglePaused() bool {
 	return s.paused
 }
 
+// Model returns the current model name
+func (s *UIState) Model() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.model
+}
+
+// SetModel updates the current model name
+func (s *UIState) SetModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = model
+}
+
 // Snapshot returns a point-in-time copy of all state values
 // for consistent rendering without holding the lock
 type StateSnapshot struct {
@@ -171,6 +188,7 @@ type StateSnapshot struct {
 	TokensUsed     int
 	TokensMax      int
 	Paused         bool
+	Model          string
 }
 
 // Snapshot returns a consistent snapshot of all state
@@ -186,5 +204,6 @@ func (s *UIState) Snapshot() StateSnapshot {
 		TokensUsed:     s.tokensUsed,
 		TokensMax:      s.tokensMax,
 		Paused:         s.paused,
+		Model:          s.model,
 	}
 }
