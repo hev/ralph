@@ -383,9 +383,11 @@ func Run(cfg *config.Config) error {
 		var exitCode int
 		if mockClaude != nil {
 			exitCode, err = mockClaude.RunIteration(ctx)
-			// Stream mock output
+			// Stream mock output, routing through TUI
 			for line := range mockClaude.StreamOutput() {
-				claude.ParseAndPrint(line)
+				claude.ParseAndPrintTo(line, func(content string, lineType claude.TUILineType) {
+					ui.WriteLine(content, mapClaudeLineTypeToTUI(lineType))
+				})
 				updateTokenUsage(ui, line)
 			}
 		} else {
@@ -618,9 +620,11 @@ func runCodeReviewPhase(ctx context.Context, cfg *config.Config, notifier *slack
 		var err error
 		if mockClaude != nil {
 			exitCode, err = mockClaude.RunIteration(ctx)
-			// Stream mock output
+			// Stream mock output, routing through TUI
 			for line := range mockClaude.StreamOutput() {
-				claude.ParseAndPrint(line)
+				claude.ParseAndPrintTo(line, func(content string, lineType claude.TUILineType) {
+					ui.WriteLine(content, mapClaudeLineTypeToTUI(lineType))
+				})
 				updateTokenUsage(ui, line)
 			}
 		} else {
@@ -976,10 +980,12 @@ func runClaude(ctx context.Context, prompt string, model string, ui *tui.TUI) (i
 		return -1, err
 	}
 
-	// Stream and parse output
+	// Stream and parse output, routing through TUI
 	lines := client.StreamOutput()
 	for line := range lines {
-		claude.ParseAndPrint(line)
+		claude.ParseAndPrintTo(line, func(content string, lineType claude.TUILineType) {
+			ui.WriteLine(content, mapClaudeLineTypeToTUI(lineType))
+		})
 		updateTokenUsage(ui, line)
 	}
 
@@ -996,9 +1002,12 @@ func runCodex(ctx context.Context, prompt string, model string, ui *tui.TUI) (in
 		return -1, err
 	}
 
+	// Stream and parse output, routing through TUI
 	lines := client.StreamOutput()
 	for line := range lines {
-		codex.ParseAndPrint(line)
+		codex.ParseAndPrintTo(line, func(content string, lineType claude.TUILineType) {
+			ui.WriteLine(content, mapClaudeLineTypeToTUI(lineType))
+		})
 		updateTokenUsage(ui, line)
 	}
 
@@ -1023,6 +1032,26 @@ func normalizeProvider(provider string) string {
 
 func isValidProvider(provider string) bool {
 	return provider == config.ProviderClaude || provider == config.ProviderCodex
+}
+
+// mapClaudeLineTypeToTUI converts claude.TUILineType to tui.LineType
+func mapClaudeLineTypeToTUI(lt claude.TUILineType) tui.LineType {
+	switch lt {
+	case claude.TUILineTypeInfo:
+		return tui.LineTypeInfo
+	case claude.TUILineTypeSuccess:
+		return tui.LineTypeSuccess
+	case claude.TUILineTypeWarning:
+		return tui.LineTypeWarning
+	case claude.TUILineTypeError:
+		return tui.LineTypeError
+	case claude.TUILineTypeDim:
+		return tui.LineTypeDim
+	case claude.TUILineTypeHighlight:
+		return tui.LineTypeHighlight
+	default:
+		return tui.LineTypeDefault
+	}
 }
 
 func formatProviderCommand(provider string, model string) string {
