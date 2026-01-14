@@ -40,7 +40,11 @@ func (m *Manager) appendError(entry ErrorEntry) {
 	defer f.Close()
 
 	timestamp := entry.Time.Format("2006-01-02 15:04:05")
-	content := fmt.Sprintf("## %s - Claude Exit Error\n", timestamp)
+	provider := m.provider
+	if provider == "" {
+		provider = "claude"
+	}
+	content := fmt.Sprintf("## %s - %s Exit Error\n", timestamp, provider)
 	content += fmt.Sprintf("**Iteration:** %d\n", entry.Iteration)
 	content += fmt.Sprintf("**Exit Code:** %d\n", entry.ExitCode)
 	if entry.Phase != "" {

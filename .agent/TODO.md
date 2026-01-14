@@ -9,5 +9,5 @@
 - [x] Update runner to reset tokens per iteration
 - [x] Update runner to call SetTodos at iteration start
 - [x] Add `updateCurrentTodo` function to runner
-- [ ] Call `SetModel` at runner startup
-- [ ] Run tests to verify no regressions
+- [x] Call `SetModel` at runner startup
+- [x] Run tests to verify no regressions

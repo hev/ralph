@@ -57,6 +57,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.CodeReviewMaxIterations != 0 {
 		t.Errorf("CodeReviewMaxIterations = %d, want 0 (unlimited)", cfg.CodeReviewMaxIterations)
 	}
+	if cfg.Provider != ProviderClaude {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, ProviderClaude)
+	}
 
 	// Cleanup options
 	if cfg.CleanupEnabled {
@@ -144,6 +147,15 @@ dry_run: true
 			validate: func(t *testing.T, cfg *Config) {
 				if cfg.Model != "opus" {
 					t.Errorf("Model = %q, want %q", cfg.Model, "opus")
+				}
+			},
+		},
+		{
+			name: "provider option",
+			yaml: `provider: codex`,
+			validate: func(t *testing.T, cfg *Config) {
+				if cfg.Provider != ProviderCodex {
+					t.Errorf("Provider = %q, want %q", cfg.Provider, ProviderCodex)
 				}
 			},
 		},

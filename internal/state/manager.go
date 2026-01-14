@@ -18,6 +18,7 @@ type Manager struct {
 	startTime     time.Time
 	runsRetention int
 	enabled       bool
+	provider      string
 	mu            sync.Mutex
 
 	// Internal tracking for run data
@@ -31,6 +32,7 @@ type Config struct {
 	ProjectName   string
 	RunsRetention int
 	Enabled       bool
+	Provider      string
 }
 
 // NewManager creates a new state manager
@@ -42,6 +44,7 @@ func NewManager(cfg Config) (*Manager, error) {
 		startTime:     time.Now(),
 		runsRetention: cfg.RunsRetention,
 		enabled:       cfg.Enabled,
+		provider:      cfg.Provider,
 	}
 
 	if m.runsRetention == 0 {

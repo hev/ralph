@@ -1,6 +1,6 @@
 # Ralph
 
-Run Claude in a loop. Like Ralph Wiggum, the defaults are insane (unlimited iterations, unlimited time).
+Run Claude or Codex in a loop. Like Ralph Wiggum, the defaults are insane (unlimited iterations, unlimited time).
 
 ![source](https://github.com/user-attachments/assets/0d31df40-2edd-45c0-b57f-6b976fb453e2)
 
@@ -35,6 +35,7 @@ ralph [OPTIONS]
   -q, --quiet                 Disable verbose output
   --dry-run                   Show what would run without executing
   --config FILE               Path to config file (default: ./ralph.yaml)
+  --provider PROVIDER         LLM provider to use (claude or codex)
   -v, --version               Show version
 
 OTEL Options:
@@ -73,6 +74,9 @@ ralph --otel-enabled --otel-endpoint localhost:4317
 # Use custom config file
 ralph --config ~/myconfig.yaml
 
+# Use Codex instead of Claude
+ralph --provider codex
+
 # Run in a worktree (auto-generated branch)
 ralph -w
 
@@ -82,6 +86,12 @@ ralph -w -b feature/my-task
 # Run in worktree, keep after completion
 ralph -w -k
 ```
+
+### Codex Requirements
+
+Using `--provider codex` requires the Codex CLI to be installed and authenticated (`codex login`).
+Ralph runs Codex non-interactively with `codex exec --json`, so ensure your environment is ready
+before starting the loop.
 
 ## Configuration File
 
@@ -124,6 +134,7 @@ max_time: 3600
 agent_dir: ./.agent
 cooldown: 5
 verbose: true
+provider: claude
 
 # OpenTelemetry
 otel:
@@ -156,16 +167,16 @@ Configuration is loaded in this order (later sources override earlier):
 
 ## How It Works
 
-Ralph runs Claude Code in a loop with `--dangerously-skip-permissions`. Each iteration:
+Ralph runs Claude Code (or Codex) in a loop with `--dangerously-skip-permissions` (Claude) or `--dangerously-bypass-approvals-and-sandbox` (Codex). Each iteration:
 
 1. Loads your prompt file
 2. Appends scratchpad instructions (use `.agent/TODO.md` for tracking)
-3. Runs Claude with streaming JSON output
+3. Runs the selected provider with streaming output
 4. Parses and displays colored output
 5. Waits for cooldown period
 6. Repeats until limits reached or interrupted
 
-The scratchpad instructions tell Claude to:
+The scratchpad instructions tell the agent to:
 - Use the agent directory as a scratchpad
 - Track progress in `TODO.md` using checkboxes (`- [ ]` pending, `- [-]` in-progress, `- [x]` done)
 - Work on one task at a time and focus on minimal context
@@ -192,7 +203,7 @@ Ralph can export metrics to OpenTelemetry for monitoring in Grafana.
 | `ralph_commits_total` | Counter | Git commits made during session |
 | `ralph_todos_pending` | Gauge | Current pending todo items |
 | `ralph_todos_completed` | Gauge | Current completed todo items |
-| `ralph_claude_errors_total` | Counter | Claude execution errors |
+| `ralph_claude_errors_total` | Counter | Provider execution errors |
 | `ralph_active_sessions` | Gauge | Currently running ralph instances |
 
 All metrics include `project` and `session_id` labels.
@@ -341,7 +352,7 @@ When worktree mode is enabled:
 2. Creates a new branch (or uses existing if specified)
 3. Copies the prompt file to the worktree
 4. Changes to the worktree directory
-5. Runs Claude in the worktree context
+5. Runs the selected provider in the worktree context
 6. On completion: pushes the branch to remote
 7. Removes the worktree (unless `--keep-worktree`)
 
@@ -375,6 +386,9 @@ ralph/
 │   ├── claude/
 │   │   ├── client.go         # Claude process execution
 │   │   └── parser.go         # JSON stream parser
+│   ├── codex/
+│   │   ├── client.go         # Codex process execution
+│   │   └── parser.go         # JSON stream passthrough
 │   ├── metrics/
 │   │   ├── collector.go      # OTEL metrics setup
 │   │   └── tracker.go        # Metric tracking helpers
