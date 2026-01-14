@@ -150,9 +150,13 @@ func (r *Renderer) drawFooter(state StateSnapshot) {
 	r.drawTokenLine(state)
 }
 
-// drawPhaseLine renders: "  Main Loop  [PAUSED]"
+// drawPhaseLine renders: "  Main Loop (sonnet)  [PAUSED]"
 func (r *Renderer) drawPhaseLine(state StateSnapshot) {
-	phaseText := FooterPhase.Render("  " + state.Phase.String())
+	phaseDisplay := state.Phase.String()
+	if state.Model != "" {
+		phaseDisplay = fmt.Sprintf("%s (%s)", phaseDisplay, state.Model)
+	}
+	phaseText := FooterPhase.Render("  " + phaseDisplay)
 
 	var pauseText string
 	if state.Paused {
