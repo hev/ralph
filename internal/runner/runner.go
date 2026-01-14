@@ -362,6 +362,9 @@ func Run(cfg *config.Config) error {
 			ui.SetTodos(counts.Completed, counts.Total())
 		}
 
+		// Update current todo (working on)
+		updateCurrentTodo(cfg, ui)
+
 		// Check iteration limit
 		if cfg.MaxIterations > 0 && iteration > cfg.MaxIterations {
 			exitReason = "max iterations reached"
@@ -479,6 +482,9 @@ func Run(cfg *config.Config) error {
 				ui.SetTodos(counts.Completed, counts.Total())
 			}
 		}
+
+		// Update current todo after iteration (may have changed)
+		updateCurrentTodo(cfg, ui)
 
 		// Log iteration end to state
 		if stateManager != nil {
@@ -1090,6 +1096,27 @@ func getModelContextSize(model string) int {
 	default:
 		return 200000 // Default context window
 	}
+}
+
+// updateCurrentTodo finds the in-progress todo item and updates the TUI.
+func updateCurrentTodo(cfg *config.Config, ui *tui.TUI) {
+	todoPath := filepath.Join(cfg.AgentDir, "TODO.md")
+	content, err := os.ReadFile(todoPath)
+	if err != nil {
+		ui.SetCurrentTodo("")
+		return
+	}
+
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- [-]") {
+			text := strings.TrimPrefix(line, "- [-]")
+			text = strings.TrimSpace(text)
+			ui.SetCurrentTodo(text)
+			return
+		}
+	}
+	ui.SetCurrentTodo("") // No in-progress item
 }
 
 type tokenUsage struct {

@@ -8,6 +8,6 @@
 - [x] Update runner to route output through TUI
 - [x] Update runner to reset tokens per iteration
 - [x] Update runner to call SetTodos at iteration start
-- [ ] Add `updateCurrentTodo` function to runner
+- [x] Add `updateCurrentTodo` function to runner
 - [ ] Call `SetModel` at runner startup
 - [ ] Run tests to verify no regressions
