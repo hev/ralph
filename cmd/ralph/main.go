@@ -17,8 +17,8 @@ var cfg = config.DefaultConfig()
 
 var rootCmd = &cobra.Command{
 	Use:   "ralph",
-	Short: "Run Claude in a loop",
-	Long: fmt.Sprintf(`ralph v%s - Run Claude in a loop
+	Short: "Run Claude or Codex in a loop",
+	Long: fmt.Sprintf(`ralph v%s - Run Claude or Codex in a loop
 
 "I'm in danger!" - Ralph Wiggum`, config.Version),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,6 +52,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&cfg.Verbose, "quiet", "q", false, "Disable verbose output")
 	rootCmd.Flags().BoolVar(&cfg.DryRun, "dry-run", cfg.DryRun, "Show what would run without executing")
 	rootCmd.Flags().StringVar(&cfg.Model, "model", cfg.Model, "Model to use (e.g., sonnet, opus, haiku)")
+	rootCmd.Flags().StringVar(&cfg.Provider, "provider", cfg.Provider, "LLM provider to use (claude or codex)")
 
 	// Behavior options
 	rootCmd.Flags().BoolVarP(&cfg.StopOnCompletion, "stop-on-completion", "s", cfg.StopOnCompletion, "Exit when all todos are complete")
@@ -84,7 +85,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&cfg.SoundMute, "sound-mute", cfg.SoundMute, "Mute sound playback (or RALPH_SOUND_MUTE=1 env)")
 
 	// Test mode options
-	rootCmd.Flags().BoolVar(&cfg.TestMode, "test-mode", cfg.TestMode, "Run in test mode (mock Claude, simulate todo progress)")
+	rootCmd.Flags().BoolVar(&cfg.TestMode, "test-mode", cfg.TestMode, "Run in test mode (mock provider, simulate todo progress)")
 	rootCmd.Flags().StringVar(&cfg.TestScenario, "test-scenario", cfg.TestScenario, "Test scenario: success, error, partial")
 
 	// State logging options
@@ -116,6 +117,8 @@ func init() {
 				savedValues["dry-run"] = cfg.DryRun
 			case "model":
 				savedValues["model"] = cfg.Model
+			case "provider":
+				savedValues["provider"] = cfg.Provider
 			case "stop-on-completion":
 				savedValues["stop-on-completion"] = cfg.StopOnCompletion
 			case "code-review":
@@ -195,6 +198,8 @@ func init() {
 				cfg.DryRun = val.(bool)
 			case "model":
 				cfg.Model = val.(string)
+			case "provider":
+				cfg.Provider = val.(string)
 			case "stop-on-completion":
 				cfg.StopOnCompletion = val.(bool)
 			case "code-review":
@@ -306,7 +311,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 
 	// Custom help template to match bash version style
-	rootCmd.SetHelpTemplate(fmt.Sprintf(`ralph v%s - Run Claude in a loop
+	rootCmd.SetHelpTemplate(fmt.Sprintf(`ralph v%s - Run Claude or Codex in a loop
 
 Usage: ralph [OPTIONS]
 
@@ -321,6 +326,7 @@ Options:
   --dry-run                   Show what would run without executing
   --config FILE               Path to config file (default: ./ralph.yaml)
   --model MODEL               Model to use (e.g., sonnet, opus, haiku)
+  --provider PROVIDER         LLM provider to use (claude or codex)
 
 Behavior Options:
   -s, --stop-on-completion    Exit when all todos are complete (default: false)
@@ -354,7 +360,7 @@ Sound Options:
   --sound-mute                Mute sound playback (or RALPH_SOUND_MUTE=1 env)
 
 Test Mode Options:
-  --test-mode                 Run in test mode (mock Claude, simulate todo progress)
+  --test-mode                 Run in test mode (mock provider, simulate todo progress)
   --test-scenario SCENARIO    Test scenario: success, error, partial (default: success)
 
 State Logging Options:
@@ -370,6 +376,7 @@ Examples:
   ralph --config ~/myconfig.yaml  # Use custom config file
   ralph --model opus              # Use opus model
   ralph --model sonnet --code-review-model opus  # Different models per phase
+  ralph --provider codex          # Use Codex instead of Claude
   ralph -w                        # Run in a worktree (auto branch)
   ralph -w -b feature/my-task     # Run in worktree with specific branch
   ralph -w -k                     # Run in worktree, keep after completion
@@ -382,7 +389,7 @@ Examples:
   ralph -i 42 -w                   # Issue + worktree (auto branch from issue)
   ralph -i 42 -w --pr              # Full workflow: issue -> worktree -> PR
   ralph --sound                     # Play Ralph Wiggum quotes after each iteration
-  ralph --test-mode                  # Run in test mode (mock Claude)
+  ralph --test-mode                  # Run in test mode (mock provider)
 
 OTEL and Slack notifications are configured via config file or environment variables.
 See: https://github.com/hev/ralph#configuration

@@ -15,6 +15,11 @@ var (
 	Date    = "unknown"
 )
 
+const (
+	ProviderClaude = "claude"
+	ProviderCodex  = "codex"
+)
+
 // Config holds all configuration for ralph
 type Config struct {
 	// Core options (matching bash version)
@@ -62,6 +67,7 @@ type Config struct {
 	Model           string // Model to use for main phase (e.g., "sonnet", "opus", "haiku")
 	CodeReviewModel string // Model to use for code review phase (defaults to Model)
 	CleanupModel    string // Model to use for cleanup phase (defaults to Model)
+	Provider        string // LLM provider to use (claude or codex)
 
 	// PR options
 	PREnabled bool   // Create a PR when the loop completes
@@ -97,9 +103,6 @@ type Config struct {
 	// State logging options
 	StateLoggingEnabled bool // Enable automatic state logging (default: true)
 	RunsRetention       int  // Number of runs to keep in runs/ (default: 50)
-
-	// TUI options
-	TUIBufferSize int // Number of lines to keep in TUI scroll buffer (default: 10000)
 }
 
 // yamlConfig represents the YAML file structure
@@ -112,6 +115,7 @@ type yamlConfig struct {
 	Verbose       *bool  `yaml:"verbose"`
 	DryRun        *bool  `yaml:"dry_run"`
 	Model         string `yaml:"model"`
+	Provider      string `yaml:"provider"`
 
 	OTEL struct {
 		Enabled       *bool  `yaml:"enabled"`
@@ -177,10 +181,6 @@ type yamlConfig struct {
 		Enabled       *bool `yaml:"enabled"`
 		RunsRetention *int  `yaml:"runs_retention"`
 	} `yaml:"state_logging"`
-
-	TUI struct {
-		BufferSize *int `yaml:"buffer_size"`
-	} `yaml:"tui"`
 }
 
 // DefaultConfig returns a Config with default values matching the bash script
@@ -234,9 +234,11 @@ func DefaultConfig() *Config {
 		PRTitle:   "",
 		PRBase:    "",
 
+		Provider: ProviderClaude,
+
 		ScratchpadPrompt: DefaultScratchpadPrompt,
 
-		SoundEnabled: false,
+		SoundEnabled:  false,
 		SoundMute:     getEnvOrDefault("RALPH_SOUND_MUTE", "") == "1",
 		SoundPageURL:  getEnvOrDefault("RALPH_SOUND_PAGE_URL", "https://andrewziola.com/xoom/wiggum/"),
 		SoundPlayer:   getEnvOrDefault("RALPH_SOUND_PLAYER", ""),
@@ -249,8 +251,6 @@ func DefaultConfig() *Config {
 
 		StateLoggingEnabled: true,
 		RunsRetention:       50,
-
-		TUIBufferSize: 10000,
 	}
 }
 
@@ -296,7 +296,7 @@ You are running in a loop. Each session should complete ONE small task, then EXI
 This prevents context rot and keeps each session focused.
 
 Examples of "one task":
-- Create or update the implementation plan in TODO.md
+- Create or update the implementation plan in IMPLEMENTATION_PLAN.md
 - Implement a single function or fix a single bug
 - Add tests for one component
 - Fix one failing test
@@ -305,8 +305,8 @@ When your single task is complete: COMMIT and EXIT. The loop will start a fresh 
 Do NOT try to complete multiple tasks in one session. Do NOT continue "just to finish one more thing."
 
 ## Directory Structure
-- {{.AgentDir}}/IMPLEMENTATION_PLAN.md - The main implementation plan (your input)
-- {{.AgentDir}}/TODO.md - Granular task checkboxes (update as you work)
+- {{.AgentDir}}/IMPLEMENTATION_PLAN.md - The high-level implementation plan (your input)
+- {{.AgentDir}}/TODO.md - The executable task list with checkboxes (update as you work)
 - {{.AgentDir}}/progress.md - Progress log (Ralph appends automatically on task completion)
 - {{.AgentDir}}/guardrails.md - Lessons learned / "Signs" (you can read and write)
 - {{.AgentDir}}/activity.log - Activity timing log (Ralph writes automatically)
@@ -314,9 +314,11 @@ Do NOT try to complete multiple tasks in one session. Do NOT continue "just to f
 - {{.AgentDir}}/runs/ - Historical run data (Ralph writes automatically)
 
 ## Task Tracking
-- Keep track of your current status in {{.AgentDir}}/TODO.md using checkboxes (- [ ] for pending, - [-] for in-progress, - [x] for done).
+- Keep the implementation plan in {{.AgentDir}}/IMPLEMENTATION_PLAN.md only. Do not mix plan text into TODO.md.
+- Keep track of execution tasks in {{.AgentDir}}/TODO.md using checkboxes (- [ ] for pending, - [-] for in-progress, - [x] for done).
 - Check off items when completed. Only work on a single item at a time.
-- If a bug or new behavior comes up during implementation, add it to the todo list.
+- If a bug or new behavior comes up during implementation, add it to TODO.md as a new task.
+- Ralph tracks progress from TODO.md only; keep one item marked in-progress to show what you're working on.
 
 ## Guardrails (Lessons Learned)
 - Use {{.AgentDir}}/guardrails.md to record important lessons learned during implementation.
@@ -324,9 +326,10 @@ Do NOT try to complete multiple tasks in one session. Do NOT continue "just to f
 - Add notes about gotchas, workarounds, or important decisions.
 
 ## Starting a Session
-1. Read TODO.md to find the next pending task (or create the plan if none exists)
-2. Check guardrails.md for lessons from previous sessions
-3. Pick ONE task to complete this session
+1. Read IMPLEMENTATION_PLAN.md for the high-level plan
+2. Read TODO.md to find the next pending task (create TODOs from the plan if needed)
+3. Check guardrails.md for lessons from previous sessions
+4. Pick ONE task to complete this session
 
 ## Testing
 - If the project has tests, always run them before and after making your changes.
@@ -456,6 +459,9 @@ func (c *Config) LoadFromFile(path string) error {
 	if yc.Model != "" {
 		c.Model = yc.Model
 	}
+	if yc.Provider != "" {
+		c.Provider = strings.ToLower(strings.TrimSpace(yc.Provider))
+	}
 
 	// OTEL options
 	if yc.OTEL.Enabled != nil {
@@ -584,11 +590,6 @@ func (c *Config) LoadFromFile(path string) error {
 	}
 	if yc.StateLogging.RunsRetention != nil {
 		c.RunsRetention = *yc.StateLogging.RunsRetention
-	}
-
-	// TUI options
-	if yc.TUI.BufferSize != nil {
-		c.TUIBufferSize = *yc.TUI.BufferSize
 	}
 
 	return nil
