@@ -387,6 +387,57 @@ func ParseAndPrint(line string) bool {
 	return output.Valid
 }
 
+// TUILineType is an alias for passing line types to TUI without circular imports
+type TUILineType int
+
+const (
+	TUILineTypeDefault TUILineType = iota
+	TUILineTypeInfo
+	TUILineTypeSuccess
+	TUILineTypeWarning
+	TUILineTypeError
+	TUILineTypeDim
+	TUILineTypeHighlight
+)
+
+// LineWriter is a callback function for writing lines to a destination
+type LineWriter func(content string, lineType TUILineType)
+
+// mapToTUILineType converts claude LineType to TUILineType for TUI integration
+func mapToTUILineType(lt LineType) TUILineType {
+	switch lt {
+	case LineTypeInfo:
+		return TUILineTypeInfo
+	case LineTypeSuccess:
+		return TUILineTypeSuccess
+	case LineTypeWarning:
+		return TUILineTypeWarning
+	case LineTypeError:
+		return TUILineTypeError
+	case LineTypeDim:
+		return TUILineTypeDim
+	default:
+		return TUILineTypeDefault
+	}
+}
+
+// ParseAndPrintTo parses a JSON line and writes formatted output via the writer callback.
+// This allows routing output to TUI or other destinations.
+// Returns true if the line was valid JSON.
+func ParseAndPrintTo(line string, writer LineWriter) bool {
+	if line == "" {
+		return false
+	}
+
+	output := ParseOutput(line)
+
+	for _, parsedLine := range output.Lines {
+		writer(parsedLine.Content, mapToTUILineType(parsedLine.LineType))
+	}
+
+	return output.Valid
+}
+
 func formatInput(input interface{}) string {
 	if input == nil {
 		return ""
